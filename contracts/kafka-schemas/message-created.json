@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "concordia/kafka-schemas/message-created",
+  "title": "MessageCreated",
+  "description": "Emitted by Chat Svc after a message is persisted to Cassandra.",
+  "type": "object",
+  "required": ["message_id", "channel_id", "server_id", "author_id", "content", "attachments", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channel_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "server_id": {
+      "description": "Null for DM channels.",
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "author_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "content": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "MinIO object key."
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

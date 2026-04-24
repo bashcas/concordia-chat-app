@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "concordia/kafka-schemas/mention",
+  "title": "Mention",
+  "description": "Emitted by Chat Svc for each @mention found in a message. One event per mention.",
+  "type": "object",
+  "required": ["mention_id", "message_id", "mentioned_user_id", "channel_id", "server_id", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "mention_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "message_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "mentioned_user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channel_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "server_id": {
+      "description": "Null for DM channels.",
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

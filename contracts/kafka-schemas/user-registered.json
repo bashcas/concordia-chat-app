@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "concordia/kafka-schemas/user-registered",
+  "title": "UserRegistered",
+  "description": "Emitted by Auth Svc after a user successfully registers.",
+  "type": "object",
+  "required": ["user_id", "username", "email", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
