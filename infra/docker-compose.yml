@@ -2,8 +2,8 @@ version: "3.9"
 
 # ---------------------------------------------------------------
 # Concordia – full local stack
-# T-06: Kafka + Zookeeper            ← this commit
-# T-07: PostgreSQL, Cassandra, Redis, MinIO
+# T-06: Kafka + Zookeeper
+# T-07: PostgreSQL, Cassandra, Redis, MinIO  ← this commit
 # T-08: Application services
 # T-09: Web App
 # ---------------------------------------------------------------
@@ -72,3 +72,108 @@ services:
       kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists \
         --topic mention --partitions 1 --replication-factor 1 &&
       echo 'Topics created: user-registered, message-created, mention'
+
+  # ── Databases ─────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: discord
+      POSTGRES_PASSWORD: discord
+      # discord_auth is the primary DB; auth_db / servers_db / tips_db are
+      # created by the init script below.
+      POSTGRES_DB: discord_auth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discord -d discord_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  cassandra:
+    image: cassandra:4
+    container_name: cassandra
+    restart: unless-stopped
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh localhost 9042 -e 'describe cluster'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # One-shot init: creates the discord_chat keyspace once Cassandra is healthy.
+  cassandra-init:
+    image: cassandra:4
+    container_name: cassandra-init
+    restart: "no"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/init.cql:/init.cql:ro
+    entrypoint: ["cqlsh", "cassandra", "-f", "/init.cql"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # S3-compatible API
+      - "9001:9001"   # Web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # One-shot init: creates the attachments bucket once MinIO is healthy.
+  minio-init:
+    image: minio/mc
+    container_name: minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/attachments &&
+      echo 'Bucket attachments created.'
+
+volumes:
+  postgres_data:
+  cassandra_data:
+  redis_data:
+  minio_data:
