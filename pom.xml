@@ -12,6 +12,7 @@
     <description>Parent POM for Concordia Java microservices</description>
 
     <modules>
+        <module>contracts/lib/java/authmw</module>
         <module>services/auth</module>
         <module>services/servers</module>
     </modules>

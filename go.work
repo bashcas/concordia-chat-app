@@ -1,6 +1,7 @@
 go 1.26.2
 
 use (
+	./contracts/lib/go/authmw
 	./contracts/proto/gen/go
 	./services/gateway
 	./services/presence
