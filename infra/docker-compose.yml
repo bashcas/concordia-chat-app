@@ -1,0 +1,10 @@
+version: "3.9"
+
+# ---------------------------------------------------------------
+# Concordia – full local stack
+# Infrastructure services are added in T-06 and T-07.
+# Application services are added in T-08.
+# Web App is added in T-09.
+# ---------------------------------------------------------------
+
+services: {}

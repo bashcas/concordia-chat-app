@@ -1,0 +1,48 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.log
+npm-debug.log*
+
+# Go
+*.exe
+*.test
+*.out
+/gateway
+/presence
+
+# Rust
+target/
+
+# Java / Maven
+**/target/
+*.class
+*.jar
+!**/src/main/**/*.jar
+.mvn/wrapper/maven-wrapper.jar
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Env
+infra/.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Proto generated files (keep gen/ dirs but ignore their contents — regenerate via protoc)
+contracts/proto/gen/**/*.go
+contracts/proto/gen/**/*.java
