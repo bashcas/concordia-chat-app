@@ -43,6 +43,4 @@ infra/.env
 .DS_Store
 Thumbs.db
 
-# Proto generated files (keep gen/ dirs but ignore their contents — regenerate via protoc)
-contracts/proto/gen/**/*.go
-contracts/proto/gen/**/*.java
+# Proto generated files are committed (regenerate via contracts/proto/generate.sh)

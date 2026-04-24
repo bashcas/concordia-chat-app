@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package checkperm;
+
+option go_package = "concordia/proto/gen/go/checkperm";
+option java_package = "com.concordia.proto";
+option java_outer_classname = "CheckPermProto";
+option java_multiple_files = true;
+
+service PermService {
+  rpc CheckPerm (CheckPermRequest) returns (CheckPermResponse);
+}
+
+enum Action {
+  READ       = 0;
+  WRITE      = 1;
+  VOICE_JOIN = 2;
+  MANAGE     = 3;
+}
+
+message CheckPermRequest {
+  string user_id    = 1;
+  string server_id  = 2;
+  string channel_id = 3;
+  Action action     = 4;
+}
+
+message CheckPermResponse {
+  bool   allowed = 1;
+  string reason  = 2;
+}
