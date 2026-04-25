@@ -1,23 +1,21 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
+	_ "net/http/pprof" // registers /debug/pprof handlers on http.DefaultServeMux
 )
 
-func main() {
-	port := os.Getenv("GATEWAY_PORT")
-	if port == "" {
-		port = "8080"
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return fallback
+}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"ok"}`)
-	})
-
+func main() {
+	port := getenv("GATEWAY_PORT", "8080")
 	log.Printf("gateway starting on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, buildMux(configFromEnv())))
 }
