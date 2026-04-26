@@ -173,7 +173,8 @@ services:
 
   gateway:
     build:
-      context: ../services/gateway
+      context: ..
+      dockerfile: services/gateway/Dockerfile
     container_name: gateway
     restart: unless-stopped
     depends_on:
