@@ -4,8 +4,10 @@ import com.concordia.servers.model.Membership;
 import com.concordia.servers.model.Server;
 import com.concordia.servers.repository.MembershipRepository;
 import com.concordia.servers.repository.ServerRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,16 +24,18 @@ public class ServerService {
         this.membershipRepository = membershipRepository;
     }
 
-    // @Transactional asegura que si algo falla, no se guarde el servidor sin su membresía
     @Transactional
     public Server createServer(String name, String ownerId) {
-        // 1. Crear y guardar el servidor
+        // Non-blocking suggestion: Input validation
+        if (name == null || name.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Server name cannot be empty");
+        }
+
         Server server = new Server();
         server.setName(name);
         server.setOwnerId(ownerId);
         Server savedServer = serverRepository.save(server);
 
-        // 2. Creating a server automatically adds creator as owner/member
         Membership membership = new Membership(savedServer.getId(), ownerId);
         membershipRepository.save(membership);
 
@@ -39,15 +43,11 @@ public class ServerService {
     }
 
     public List<Server> getServersByUserId(String userId) {
-        // 1. Buscar a qué servidores pertenece este usuario
         List<Membership> memberships = membershipRepository.findByUserId(userId);
-
-        // 2. Extraer solo los IDs de esos servidores
         List<UUID> serverIds = memberships.stream()
                 .map(Membership::getServerId)
                 .toList();
 
-        // 3. Buscar los servidores por IDs
         return serverRepository.findAllById(serverIds);
     }
 
@@ -57,26 +57,29 @@ public class ServerService {
 
     @Transactional
     public Server updateServer(UUID id, String newName, String requesterId) {
-        Server server = serverRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("NOT_FOUND"));
+        // Non-blocking suggestion: Input validation
+        if (newName == null || newName.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Server name cannot be empty");
+        }
 
-        // Solo el dueño puede editar
+        Server server = serverRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found"));
+
         if (!server.getOwnerId().equals(requesterId)) {
-            throw new RuntimeException("FORBIDDEN");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can edit this server");
         }
 
         server.setName(newName);
-        return serverRepository.save(server); // Hace un UPDATE en la base de datos
+        return serverRepository.save(server);
     }
 
     @Transactional
     public void deleteServer(UUID id, String requesterId) {
         Server server = serverRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("NOT_FOUND"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found"));
 
-        //Solo el dueño puede borrar
         if (!server.getOwnerId().equals(requesterId)) {
-            throw new RuntimeException("FORBIDDEN");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can delete this server");
         }
 
         serverRepository.delete(server);

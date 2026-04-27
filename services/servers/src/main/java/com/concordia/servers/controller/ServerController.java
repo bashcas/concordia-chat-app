@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/servers") // Todas las URLs de este archivo empezarán con /servers
+@RequestMapping("/servers")
 public class ServerController {
 
     private final ServerService serverService;
@@ -21,7 +21,6 @@ public class ServerController {
         this.serverService = serverService;
     }
 
-    // 1. CREAR SERVIDOR (POST)
     @PostMapping
     public ResponseEntity<Server> createServer(
             @RequestHeader("X-User-Id") String userId,
@@ -29,12 +28,9 @@ public class ServerController {
 
         String name = payload.get("name");
         Server createdServer = serverService.createServer(name, userId);
-
-        // Retorna HTTP 201 (Created)
         return ResponseEntity.status(HttpStatus.CREATED).body(createdServer);
     }
 
-    // 2. OBTENER TODOS MIS SERVIDORES (GET)
     @GetMapping
     public ResponseEntity<List<Server>> getServers(
             @RequestHeader("X-User-Id") String userId) {
@@ -43,7 +39,6 @@ public class ServerController {
         return ResponseEntity.ok(servers);
     }
 
-    // 3. OBTENER UN SERVIDOR POR SU ID (GET)
     @GetMapping("/{id}")
     public ResponseEntity<Server> getServerById(@PathVariable UUID id) {
         Optional<Server> server = serverService.getServerById(id);
@@ -52,36 +47,24 @@ public class ServerController {
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
-    // 4. ACTUALIZAR UN SERVIDOR (PATCH)
-    @PatchMapping("/{id}")
-    public ResponseEntity<?> updateServer(
+    // Blocker 1: Changed from @PatchMapping to @PutMapping
+    @PutMapping("/{id}")
+    public ResponseEntity<Server> updateServer(
             @PathVariable UUID id,
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, String> payload) {
-        try {
-            String newName = payload.get("name");
-            Server updatedServer = serverService.updateServer(id, newName, userId);
-            return ResponseEntity.ok(updatedServer);
-        } catch (RuntimeException e) {
-            // Manejo de errores de negocio
-            if (e.getMessage().equals("NOT_FOUND")) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-            if (e.getMessage().equals("FORBIDDEN")) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+
+        String newName = payload.get("name");
+        Server updatedServer = serverService.updateServer(id, newName, userId);
+        return ResponseEntity.ok(updatedServer);
     }
 
-    // 5. BORRAR UN SERVIDOR - SOFT DELETE (DELETE)
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteServer(
-            @PathVariable UUID id,
-            @RequestHeader("X-User-Id") String userId) {
-        try {
-            serverService.deleteServer(id, userId);
-            return ResponseEntity.noContent().build(); // Retorna HTTP 204 (No Content) por regla general en APIs
-        } catch (RuntimeException e) {
-            if (e.getMessage().equals("NOT_FOUND")) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-            if (e.getMessage().equals("FORBIDDEN")) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+    public ResponseEntity<Void> deleteServer( // Cambiado a Void porque no devuelve body
+                                              @PathVariable UUID id,
+                                              @RequestHeader("X-User-Id") String userId) {
+
+        serverService.deleteServer(id, userId);
+        return ResponseEntity.noContent().build();
     }
 }
