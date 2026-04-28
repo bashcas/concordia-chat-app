@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/servers/{serverId}/channels") // Observa cómo la URL base incluye el ID del servidor
+@RequestMapping("/servers/{serverId}/channels") // Base URL includes the server ID
 public class ChannelController {
 
     private final ChannelService channelService;
@@ -20,7 +20,6 @@ public class ChannelController {
         this.channelService = channelService;
     }
 
-    // DoD: POST /servers/{id}/channels -> HTTP 201
     @PostMapping
     public ResponseEntity<Channel> createChannel(
             @PathVariable UUID serverId,
@@ -34,7 +33,6 @@ public class ChannelController {
         return ResponseEntity.status(HttpStatus.CREATED).body(createdChannel);
     }
 
-    // DoD: GET /servers/{id}/channels returns all channels (only if user is a member)
     @GetMapping
     public ResponseEntity<List<Channel>> getChannels(
             @PathVariable UUID serverId,
@@ -44,8 +42,8 @@ public class ChannelController {
         return ResponseEntity.ok(channels);
     }
 
-    // DoD: PUT /servers/{id}/channels/{cid} updates name/type
-    @PutMapping("/{channelId}")
+    // Suggestion 2 Fix: Changed from @PutMapping to @PatchMapping since it supports partial updates
+    @PatchMapping("/{channelId}")
     public ResponseEntity<Channel> updateChannel(
             @PathVariable UUID serverId,
             @PathVariable UUID channelId,
@@ -59,7 +57,6 @@ public class ChannelController {
         return ResponseEntity.ok(updatedChannel);
     }
 
-    // DoD: DELETE /servers/{id}/channels/{cid} soft-deletes; HTTP 204
     @DeleteMapping("/{channelId}")
     public ResponseEntity<Void> deleteChannel(
             @PathVariable UUID serverId,

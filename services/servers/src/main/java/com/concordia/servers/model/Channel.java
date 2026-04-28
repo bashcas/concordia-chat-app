@@ -18,6 +18,7 @@ public class Channel {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @JsonProperty("channel_id") // Consistent serialization
     private UUID id;
 
     @Column(name = "server_id", nullable = false)

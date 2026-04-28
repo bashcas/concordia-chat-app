@@ -10,6 +10,6 @@ import java.util.UUID;
 @Repository
 public interface ChannelRepository extends JpaRepository<Channel, UUID> {
 
-    // Spring Boot escribirá automáticamente el SQL: SELECT * FROM channels WHERE server_id = ?
+    // Spring Boot automatically generates the SQL query based on the method name
     List<Channel> findByServerId(UUID serverId);
 }

@@ -29,7 +29,7 @@ public class ChannelService {
         this.membershipRepository = membershipRepository;
     }
 
-    // Método auxiliar para validar el permiso MANAGE (temporalmente validamos si es el dueño)
+    // Helper method to verify MANAGE permission (temporarily checks if user is owner)
     private Server getServerAndVerifyManagePermission(UUID serverId, String userId) {
         Server server = serverRepository.findById(serverId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found"));
@@ -46,14 +46,22 @@ public class ChannelService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Channel name cannot be empty");
         }
 
-        getServerAndVerifyManagePermission(serverId, userId);
+        // Suggestion 3: Check server existence first to return 404 instead of 403
+        if (!serverRepository.existsById(serverId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found");
+        }
+
+        // Blocker 2 Fix: Any member can create a channel, removed MANAGE requirement
+        if (!membershipRepository.existsByServerIdAndUserId(serverId, userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only members can create channels");
+        }
 
         Channel channel = new Channel();
         channel.setServerId(serverId);
         channel.setName(name);
 
         try {
-            // Convierte el string "TEXT" o "VOICE" a nuestro Enum. Falla si mandan algo raro.
+            // Converts the string "TEXT" or "VOICE" to Enum. Throws exception if invalid.
             channel.setType(ChannelType.valueOf(type.toUpperCase()));
         } catch (IllegalArgumentException | NullPointerException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid channel type. Must be TEXT or VOICE");
@@ -63,6 +71,11 @@ public class ChannelService {
     }
 
     public List<Channel> getChannels(UUID serverId, String userId) {
+        // Suggestion 3: Check server existence first to return 404
+        if (!serverRepository.existsById(serverId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found");
+        }
+
         // DoD: Non-member accessing server's channels -> HTTP 403
         if (!membershipRepository.existsByServerIdAndUserId(serverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Non-member cannot access server's channels");
