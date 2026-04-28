@@ -57,7 +57,7 @@ def _get_user_id(request: Request) -> str:
     return user_id
 
 
-def _check_perm(user_id: str, channel_id: str) -> bool:
+def _check_perm(user_id: str, channel_id: str, action: int = check_perm_pb2.VOICE_JOIN) -> bool:
     addr = os.getenv("GRPC_ADDR", "servers:50051")
     with grpc.insecure_channel(addr) as channel:
         stub = check_perm_pb2_grpc.PermServiceStub(channel)
@@ -65,13 +65,23 @@ def _check_perm(user_id: str, channel_id: str) -> bool:
             user_id=user_id,
             server_id="",
             channel_id=channel_id,
-            action=check_perm_pb2.VOICE_JOIN,
+            action=action,
         )
         try:
             resp = stub.CheckPerm(req, timeout=5)
             return resp.allowed
         except grpc.RpcError:
             return False
+
+
+class ParticipantEntry(BaseModel):
+    user_id: str
+    joined_at: str
+
+
+class ParticipantsResponse(BaseModel):
+    channel_id: str
+    participants: list[ParticipantEntry]
 
 
 @app.get("/health")
@@ -114,3 +124,30 @@ async def join_voice_channel(channel_id: str, request: Request):
         user_id=user_id,
         joined_at=joined_at,
     )
+
+
+@app.post("/voice/{channel_id}/leave", status_code=204)
+async def leave_voice_channel(channel_id: str, request: Request):
+    user_id = _get_user_id(request)
+    redis = request.app.state.redis
+    await redis.zrem(f"voice:channel:{channel_id}:users", user_id)
+    await redis.delete(f"voice:session:{channel_id}:{user_id}")
+
+
+@app.get("/voice/{channel_id}/participants", response_model=ParticipantsResponse)
+async def get_participants(channel_id: str, request: Request):
+    user_id = _get_user_id(request)
+
+    if not await asyncio.to_thread(_check_perm, user_id, channel_id, check_perm_pb2.READ):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    redis = request.app.state.redis
+    rows = await redis.zrange(f"voice:channel:{channel_id}:users", 0, -1, withscores=True)
+    participants = [
+        ParticipantEntry(
+            user_id=member,
+            joined_at=datetime.fromtimestamp(score, tz=timezone.utc).isoformat(),
+        )
+        for member, score in rows
+    ]
+    return ParticipantsResponse(channel_id=channel_id, participants=participants)
