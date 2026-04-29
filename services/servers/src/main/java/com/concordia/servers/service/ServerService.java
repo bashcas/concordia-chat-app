@@ -1,8 +1,11 @@
 package com.concordia.servers.service;
 
 import com.concordia.servers.model.Membership;
+import com.concordia.servers.model.Permission;
+import com.concordia.servers.model.Role;
 import com.concordia.servers.model.Server;
 import com.concordia.servers.repository.MembershipRepository;
+import com.concordia.servers.repository.RoleRepository;
 import com.concordia.servers.repository.ServerRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,16 +14,20 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class ServerService {
 
     private final ServerRepository serverRepository;
+    private final RoleRepository roleRepository;
     private final MembershipRepository membershipRepository;
 
-    public ServerService(ServerRepository serverRepository, MembershipRepository membershipRepository) {
+    // CORRECCIÓN: Agregamos RoleRepository roleRepository como parámetro aquí
+    public ServerService(ServerRepository serverRepository, RoleRepository roleRepository, MembershipRepository membershipRepository) {
         this.serverRepository = serverRepository;
+        this.roleRepository = roleRepository;
         this.membershipRepository = membershipRepository;
     }
 
@@ -35,6 +42,14 @@ public class ServerService {
         server.setName(name);
         server.setOwnerId(ownerId);
         Server savedServer = serverRepository.save(server);
+
+        // El nacimiento del @everyone
+        Role everyoneRole = new Role();
+        everyoneRole.setId(UUID.randomUUID());
+        everyoneRole.setServerId(savedServer.getId()); // Usamos savedServer para mayor seguridad de que ya tiene ID
+        everyoneRole.setName("@everyone");
+        everyoneRole.setPermissions(Set.of(Permission.READ, Permission.WRITE));
+        roleRepository.save(everyoneRole);
 
         Membership membership = new Membership(savedServer.getId(), ownerId);
         membershipRepository.save(membership);
