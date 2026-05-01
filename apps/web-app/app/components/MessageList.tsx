@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '@/app/lib/api';
 
 interface Message {
@@ -37,9 +37,11 @@ function displayName(msg: Message): string {
 export default function MessageList({
   channelId,
   currentUserId,
+  extraMessages = [],
 }: {
   channelId: string;
   currentUserId: string | null;
+  extraMessages?: Message[];
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -50,6 +52,7 @@ export default function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialScrolled = useRef(false);
+  const prevExtraLen = useRef(0);
 
   const fetchMessages = useCallback(
     async (before?: string): Promise<MessagesResponse> => {
@@ -87,6 +90,13 @@ export default function MessageList({
     };
   }, [channelId, fetchMessages]);
 
+  // Merge fetched + extra (optimistic/WS) messages, deduplicating by message_id
+  const allMessages = useMemo(() => {
+    const fetchedIds = new Set(messages.map((m) => m.message_id));
+    const extras = extraMessages.filter((m) => !fetchedIds.has(m.message_id));
+    return [...messages, ...extras];
+  }, [messages, extraMessages]);
+
   // Scroll to bottom after initial load
   useEffect(() => {
     if (!loading && !initialScrolled.current && scrollRef.current) {
@@ -94,6 +104,19 @@ export default function MessageList({
       initialScrolled.current = true;
     }
   }, [loading, messages]);
+
+  // Auto-scroll to bottom when new extra messages arrive (WS / optimistic)
+  useEffect(() => {
+    if (extraMessages.length <= prevExtraLen.current) {
+      prevExtraLen.current = extraMessages.length;
+      return;
+    }
+    prevExtraLen.current = extraMessages.length;
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [extraMessages]);
 
   // Infinite scroll — watch sentinel at top of list
   useEffect(() => {
@@ -171,7 +194,7 @@ export default function MessageList({
         </div>
       )}
 
-      {messages.length === 0 ? (
+      {allMessages.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-center pb-8">
           <div className="text-5xl mb-3 text-zinc-700">#</div>
           <p className="text-lg font-bold text-zinc-300">This is the beginning of the channel</p>
@@ -179,8 +202,8 @@ export default function MessageList({
         </div>
       ) : (
         <div className="flex flex-col px-4 py-2">
-          {messages.map((msg, i) => {
-            const prev = messages[i - 1];
+          {allMessages.map((msg, i) => {
+            const prev = allMessages[i - 1];
             const grouped =
               prev &&
               prev.author_id === msg.author_id &&
