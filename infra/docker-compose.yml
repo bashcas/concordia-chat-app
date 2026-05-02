@@ -232,8 +232,10 @@ services:
         condition: service_healthy
     ports:
       - "8082:8082"
+      - "50051:50051"
     environment:
       SERVER_PORT: "8082"
+      GRPC_PORT: "50051"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/servers_db"
       SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-discord}"
       SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-discord}"
