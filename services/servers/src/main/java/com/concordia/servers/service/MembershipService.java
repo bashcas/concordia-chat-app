@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import com.concordia.servers.model.UserCache;
+import com.concordia.servers.repository.UserCacheRepository;
 
 import java.util.List;
 import java.util.Map;
@@ -20,11 +22,15 @@ public class MembershipService {
 
     private final MembershipRepository membershipRepository;
     private final ServerRepository serverRepository;
+    private final UserCacheRepository userCacheRepository;
 
-    public MembershipService(MembershipRepository membershipRepository, ServerRepository serverRepository) {
-        this.membershipRepository = membershipRepository;
-        this.serverRepository = serverRepository;
-    }
+public MembershipService(MembershipRepository membershipRepository, 
+                         ServerRepository serverRepository,
+                         UserCacheRepository userCacheRepository) {
+    this.membershipRepository = membershipRepository;
+    this.serverRepository = serverRepository;
+    this.userCacheRepository = userCacheRepository;
+}
 
     @Transactional
     public void joinServer(UUID serverId, String userId) {
@@ -63,18 +69,23 @@ public class MembershipService {
 
     }
     @Transactional(readOnly = true)
-    public List<Map<String, String>> getServerMembers(UUID serverId) {
-        if (!serverRepository.existsById(serverId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found");
-        }
+ public List<Map<String, String>> getServerMembers(UUID serverId) {
+     if (!serverRepository.existsById(serverId)) {
+         throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Server not found");
+     }
 
-        List<Membership> memberships = membershipRepository.findByServerId(serverId);
+     List<Membership> memberships = membershipRepository.findByServerId(serverId);
 
-        // DoD: returns list with user_id and username
-        return memberships.stream().map(m -> Map.of(
-                "user_id", m.getUserId(),
-                // TODO(T-39): replace with users_cache lookup once Kafka consumer is implemented
-                "username", "User_" + m.getUserId()
-        )).collect(Collectors.toList());
+     return memberships.stream().map(m -> {
+         // Buscamos al usuario en nuestra caché local
+         String username = userCacheRepository.findById(m.getUserId())
+                 .map(UserCache::getUsername)
+                 .orElse("Unknown_User_" + m.getUserId()); // Fallback si aún no llega el evento
+
+         return Map.of(
+                 "user_id", m.getUserId(),
+                 "username", username
+         );
+     }).collect(Collectors.toList());
     }
 }
