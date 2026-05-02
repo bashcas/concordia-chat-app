@@ -4,6 +4,7 @@ import com.concordia.servers.model.Membership;
 import com.concordia.servers.model.MembershipId;
 import com.concordia.servers.model.Server;
 import com.concordia.servers.repository.MembershipRepository;
+import com.concordia.servers.repository.RoleRepository;
 import com.concordia.servers.repository.ServerRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,10 +21,12 @@ public class MembershipService {
 
     private final MembershipRepository membershipRepository;
     private final ServerRepository serverRepository;
+    private final RoleRepository roleRepository;
 
-    public MembershipService(MembershipRepository membershipRepository, ServerRepository serverRepository) {
+    public MembershipService(MembershipRepository membershipRepository, ServerRepository serverRepository, RoleRepository roleRepository) {
         this.membershipRepository = membershipRepository;
         this.serverRepository = serverRepository;
+        this.roleRepository = roleRepository;
     }
 
     @Transactional
@@ -42,6 +45,11 @@ public class MembershipService {
         membership.setUserId(userId);
 
         membershipRepository.save(membership);
+
+        roleRepository.findByServerIdAndName(serverId, "@everyone")
+                .ifPresent(everyone ->
+                        roleRepository.assignRoleToMember(serverId, userId, everyone.getId())
+                );
     }
 
     @Transactional
