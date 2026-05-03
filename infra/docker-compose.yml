@@ -240,6 +240,7 @@ services:
       SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-discord}"
       SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-discord}"
       JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9093"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8082/health || exit 1"]
       interval: 10s
