@@ -13,7 +13,7 @@ end
         ChatSvc["**Chat Svc**\nChannels · DMs · Messages · History\n〔Rust〕"]
         ServersSvc["**Servers Svc**\nCreate · Config · Roles · Permissions\n〔Java/Spring Boot〕"]
         VoiceSvc["**Voice Svc**\nWebRTC · Sessions · Voice channels\n〔Python/FastAPI〕"]
-        PresenceSvc["**Presence Svc**\nOnline · Idle · DND · Invisible\n〔Go〕"]
+        PresenceSvc["**Presence Svc**\nOnline · Offline · Heartbeat\n〔Go〕"]
     end
 
     subgraph DATA["DATA & INFRASTRUCTURE"]
@@ -29,7 +29,7 @@ end
     DesktopApp -- "WS / REST" --> APIGateway
 
     APIGateway -- "REST" --> AuthSvc
-    APIGateway -- "REST / WS" --> ChatSvc
+    APIGateway -- "REST" --> ChatSvc
     APIGateway -- "REST" --> ServersSvc
     APIGateway -- "WS" --> VoiceSvc
     APIGateway -- "REST" --> PresenceSvc
