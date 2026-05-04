@@ -1,0 +1,50 @@
+graph TD
+subgraph PRESENTATION["PRESENTATION"]
+WebApp["**Web App**\nNext.js / SSR\n〔Client〕"]
+DesktopApp["**Desktop App**\nElectron / CSR\n〔Client〕"]
+end
+
+    subgraph GATEWAY["GATEWAY"]
+        APIGateway["**API Gateway**\nREST · WebSocket · Auth token validation · Routing\n〔Go〕"]
+    end
+
+    subgraph SERVICES["SERVICES"]
+        AuthSvc["**Auth Svc**\nRegister · Login · JWT\n〔Java/Spring Boot〕"]
+        ChatSvc["**Chat Svc**\nChannels · DMs · Messages · History\n〔Rust〕"]
+        ServersSvc["**Servers Svc**\nCreate · Config · Roles · Permissions\n〔Java/Spring Boot〕"]
+        VoiceSvc["**Voice Svc**\nWebRTC · Sessions · Voice channels\n〔Python/FastAPI〕"]
+        PresenceSvc["**Presence Svc**\nOnline · Idle · DND · Invisible\n〔Go〕"]
+    end
+
+    subgraph DATA["DATA & INFRASTRUCTURE"]
+        AuthDB[("**Auth DB**\nUsers · Identity\n〔PostgreSQL〕")]
+        ChatDB[("**Chat DB**\nMessages · Channels\n〔Cassandra〕")]
+        ServersDB[("**Servers DB**\nGuilds · Roles\n〔PostgreSQL〕")]
+        Redis[("**Redis**\nVoice sessions · Presence\n〔Shared instance〕")]
+        ObjectStore[("**Object Store**\nFile attachments · Blobs\n〔MinIO〕")]
+        Kafka["**Kafka**\nuser-registered · message-created · mention\n〔Event Stream〕"]
+    end
+
+    WebApp -- "WS / REST" --> APIGateway
+    DesktopApp -- "WS / REST" --> APIGateway
+
+    APIGateway -- "REST" --> AuthSvc
+    APIGateway -- "REST / WS" --> ChatSvc
+    APIGateway -- "REST" --> ServersSvc
+    APIGateway -- "WS" --> VoiceSvc
+    APIGateway -- "REST" --> PresenceSvc
+
+    ChatSvc -. "gRPC" .-> ServersSvc
+    VoiceSvc -. "gRPC" .-> ServersSvc
+    ChatSvc -. "REST" .-> PresenceSvc
+
+    AuthSvc -. "pub: user-registered" .-> Kafka
+    ChatSvc -. "pub: message-created · mention" .-> Kafka
+    Kafka -. "sub: user-registered" .-> ServersSvc
+
+    AuthSvc --> AuthDB
+    ChatSvc --> ChatDB
+    ChatSvc --> ObjectStore
+    ServersSvc --> ServersDB
+    VoiceSvc --> Redis
+    PresenceSvc --> Redis

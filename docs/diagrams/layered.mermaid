@@ -1,0 +1,43 @@
+graph TD
+subgraph L4["Layer 4 — Presentation"]
+WebApp["Web App\n(Next.js / SSR)"]
+DesktopApp["Desktop App\n(Electron / CSR)"]
+end
+
+    subgraph L3["Layer 3 — Gateway"]
+        APIGateway["API Gateway\n(REST · WebSocket · Auth · Routing)"]
+    end
+
+    subgraph L2["Layer 2 — Services"]
+        AuthSvc["Auth Svc\n(Identity)"]
+        ChatSvc["Chat Svc\n(Messaging)"]
+        ServersSvc["Servers Svc\n(Communities)"]
+        VoiceSvc["Voice Svc\n(Streams)"]
+        PresenceSvc["Presence Svc\n(Status)"]
+    end
+
+    subgraph L1["Layer 1 — Data & Infrastructure"]
+        AuthDB["Auth DB\n(PostgreSQL)"]
+        ChatDB["Chat DB\n(Cassandra)"]
+        ServersDB["Servers DB\n(PostgreSQL)"]
+        Redis["Redis\n(Voice + Presence)"]
+        ObjectStore["Object Store\n(MinIO)"]
+        Kafka["Kafka\n(Event Stream)"]
+    end
+
+    WebApp --> APIGateway
+    DesktopApp --> APIGateway
+    APIGateway --> AuthSvc
+    APIGateway --> ChatSvc
+    APIGateway --> ServersSvc
+    APIGateway --> VoiceSvc
+    APIGateway --> PresenceSvc
+    AuthSvc --> AuthDB
+    AuthSvc --> Kafka
+    ChatSvc --> ChatDB
+    ChatSvc --> ObjectStore
+    ChatSvc --> Kafka
+    ServersSvc --> ServersDB
+    ServersSvc --> Kafka
+    VoiceSvc --> Redis
+    PresenceSvc --> Redis
