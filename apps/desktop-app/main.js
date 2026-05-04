@@ -151,9 +151,18 @@ function createWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
-  // Load and scale explicitly to prevent missing/corrupt icon buffers in Linux GTK/Qt bounds
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+  const fs = require('fs');
+  const iconPath16 = path.join(__dirname, 'assets', 'tray-icon.png');
+  const iconPath32 = path.join(__dirname, 'assets', 'tray-icon@2x.png');
+  const base16 = nativeImage.createFromPath(iconPath16);
+  const base32 = fs.existsSync(iconPath32)
+    ? nativeImage.createFromPath(iconPath32)
+    : base16;
+  const png16 = base16.resize({ width: 16, height: 16 }).toPNG();
+  const png32 = base32.resize({ width: 32, height: 32 }).toPNG();
+  const icon = nativeImage.createEmpty();
+  icon.addRepresentation({ scaleFactor: 1, width: 16, height: 16, buffer: png16 });
+  icon.addRepresentation({ scaleFactor: 2, width: 16, height: 16, buffer: png32 });
   tray = new Tray(icon);
   
   const contextMenu = Menu.buildFromTemplate([
@@ -258,11 +267,10 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Request notification permission on macOS
+  // macOS: there is no separate notification permission API in Electron; the system prompts on first Notification.show().
+  // Dock bounce is only light attention feedback, not a permission request.
   if (process.platform === 'darwin' && Notification.isSupported()) {
-    // There is no explicit native prompt API for notifications in Electron (macOS asks automatically on first .show())
-    // but requesting user attention via dock bounce validates system engagement
-    app.dock.bounce();
+    app.dock.bounce('informational');
   }
 
   createWindow();

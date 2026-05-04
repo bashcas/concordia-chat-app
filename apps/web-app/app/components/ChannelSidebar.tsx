@@ -255,7 +255,7 @@ export default function ChannelSidebar() {
               {voiceChannels.map((ch) => (
                 <div
                   key={ch.channel_id}
-                  onClick={() => router.push(`/app/servers/${serverId}/channels/${ch.channel_id}`)}
+                  onClick={() => router.push(`/servers/${serverId}/channels/${ch.channel_id}`)}
                   className={`flex items-center gap-1.5 px-2 py-[5px] rounded-md cursor-pointer text-sm transition-colors ${
                     ch.channel_id === activeChannelId
                       ? 'bg-[#27272a] text-zinc-100'
@@ -302,19 +302,18 @@ export default function ChannelSidebar() {
                   </svg>
                 </button>
               )}
-              <form action={logoutAction}>
-                <button
-                  type="submit"
-                  title="Sign out"
-                  className="text-zinc-500 hover:text-red-400 hover:bg-[#3f4147] transition-colors cursor-pointer p-1 rounded"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                </button>
-              </form>
+              <button
+                type="button"
+                title="Sign out"
+                onClick={() => { void logoutAction(); }}
+                className="text-zinc-500 hover:text-red-400 hover:bg-[#3f4147] transition-colors cursor-pointer p-1 rounded"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>

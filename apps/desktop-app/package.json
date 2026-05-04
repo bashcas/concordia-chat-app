@@ -5,7 +5,21 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "cd ../web-app && NEXT_PUBLIC_API_URL=http://localhost:8080 npm run build && cd ../desktop-app && electron-builder"
+  },
+  "build": {
+    "appId": "com.concordia.chat",
+    "productName": "Concordia Chat",
+    "icon": "assets/icon",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
   },
   "devDependencies": {
     "electron": "41.5.0",

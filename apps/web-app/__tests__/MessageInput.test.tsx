@@ -35,12 +35,6 @@ global.WebSocket = jest.fn().mockImplementation(() => ({
   onerror: null,
 })) as unknown as typeof WebSocket;
 
-// ws-token endpoint (direct fetch, not apiFetch)
-global.fetch = jest.fn().mockResolvedValue({
-  ok: true,
-  json: async () => ({ token: 'test-ws-token' }),
-}) as unknown as typeof fetch;
-
 import MessageInput from '@/app/components/MessageInput';
 import ChannelView from '@/app/components/ChannelView';
 import { apiFetch } from '@/app/lib/api';
@@ -168,10 +162,11 @@ function setupChannelMocks(
 describe('ChannelView – send message', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ token: 'test-ws-token' }),
-    });
+    localStorage.setItem('access_token', 'test-ws-token');
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('access_token');
   });
 
   test('calls the correct API endpoint when a message is sent', async () => {

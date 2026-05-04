@@ -19,5 +19,6 @@ export default async function ServerPage({ params }: Props) {
 }
 
 export function generateStaticParams() {
-  return [];
+  // Static export requires at least one path; real server IDs are resolved client-side.
+  return [{ id: 'default' }];
 }
