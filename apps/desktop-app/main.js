@@ -1,13 +1,9 @@
 const { app, BrowserWindow, Menu, protocol, Tray, nativeImage, ipcMain, Notification } = require('electron');
 const path = require('path');
 const serve = require('electron-serve').default;
-const Store = require('electron-store');
 
-const store = new Store({
-  defaults: {
-    notificationsEnabled: true
-  }
-});
+let Store;
+let store;
 
 const loadURL = serve({ directory: path.join(__dirname, '../web-app/out') });
 
@@ -252,7 +248,16 @@ app.on('window-all-closed', (e) => {
   // This is the safest way to ensure the app never quits automatically on any OS.
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Dynamic import for ESM-only electron-store v11+
+  const { default: ElectronStore } = await import('electron-store');
+  Store = ElectronStore;
+  store = new Store({
+    defaults: {
+      notificationsEnabled: true
+    }
+  });
+
   // Request notification permission on macOS
   if (process.platform === 'darwin' && Notification.isSupported()) {
     // There is no explicit native prompt API for notifications in Electron (macOS asks automatically on first .show())

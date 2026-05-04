@@ -2,7 +2,14 @@ const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 
 export function getWebSocketUrl(path: string = '/ws'): string {
   const wsGateway = GATEWAY.replace(/^http/, 'ws');
-  return `${wsGateway}${path}`;
+  let url = `${wsGateway}${path}`;
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      url += `?token=${token}`;
+    }
+  }
+  return url;
 }
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
