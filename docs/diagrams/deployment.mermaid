@@ -1,0 +1,50 @@
+graph TD
+subgraph HOST["Docker Host / Cloud VM"]
+subgraph DOCKER_NET["docker-network: concordia-net"]
+
+            subgraph C_PRES["Presentation Containers"]
+                C_WEB["container: web-app\nNext.js · Node.js · :3000"]
+            end
+
+            subgraph C_GW["Gateway Container"]
+                C_GW_BOX["container: gateway\nGo · :8080"]
+            end
+
+            subgraph C_SVCS["Service Containers"]
+                C_AUTH["container: auth\nJava/Spring Boot · :8081"]
+                C_CHAT["container: chat\nRust · :8083"]
+                C_SERVERS["container: servers\nJava/Spring Boot · :8082 · gRPC :50051"]
+                C_VOICE["container: voice\nPython/FastAPI · :8084"]
+                C_PRESENCE["container: presence\nGo · :8086"]
+            end
+
+            subgraph C_DATA["Data Containers"]
+                C_PG["container: postgres\nPostgreSQL · :5432\n(auth_db · servers_db)"]
+                C_CHATDB["container: cassandra\nCassandra · :9042"]
+                C_REDIS["container: redis\nRedis · :6379\n(voice + presence)"]
+                C_S3["container: minio\nMinIO · :9000 / :9001"]
+                C_KAFKA["container: kafka\nKafka · :9092 ext / :9093 int"]
+                C_ZK["container: zookeeper\n:2181"]
+            end
+        end
+    end
+
+    C_WEB -. "communicates_with" .-> C_GW_BOX
+    C_GW_BOX -. "communicates_with" .-> C_AUTH
+    C_GW_BOX -. "communicates_with" .-> C_CHAT
+    C_GW_BOX -. "communicates_with" .-> C_SERVERS
+    C_GW_BOX -. "communicates_with" .-> C_VOICE
+    C_GW_BOX -. "communicates_with" .-> C_PRESENCE
+    C_CHAT -. "communicates_with" .-> C_SERVERS
+    C_VOICE -. "communicates_with" .-> C_SERVERS
+    C_CHAT -. "communicates_with" .-> C_PRESENCE
+    C_AUTH -. "communicates_with" .-> C_PG
+    C_SERVERS -. "communicates_with" .-> C_PG
+    C_CHAT -. "communicates_with" .-> C_CHATDB
+    C_CHAT -. "communicates_with" .-> C_S3
+    C_AUTH -. "communicates_with" .-> C_KAFKA
+    C_CHAT -. "communicates_with" .-> C_KAFKA
+    C_SERVERS -. "communicates_with" .-> C_KAFKA
+    C_VOICE -. "communicates_with" .-> C_REDIS
+    C_PRESENCE -. "communicates_with" .-> C_REDIS
+    C_KAFKA -. "communicates_with" .-> C_ZK
