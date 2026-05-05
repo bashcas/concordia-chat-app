@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { apiFetch } from '@/app/lib/api';
+import { apiFetch, getWebSocketUrl } from '@/app/lib/api';
 
 interface Participant {
   user_id: string;
   joined_at: string;
 }
 
-const WS_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080').replace(/^http/, 'ws');
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 export default function VoiceChannelView({
@@ -154,11 +153,10 @@ export default function VoiceChannelView({
         setParticipants(d.participants);
       }
 
-      const tokenRes = await fetch('/api/ws-token');
-      if (!tokenRes.ok) throw new Error('could not get ws token');
-      const { token } = await tokenRes.json() as { token: string };
+      const token = localStorage.getItem('access_token');
+      if (!token) throw new Error('not authenticated');
 
-      const ws = new WebSocket(`${WS_BASE}/voice/${channelId}/signal?token=${token}`);
+      const ws = new WebSocket(getWebSocketUrl(`/voice/${channelId}/signal`));
       wsRef.current = ws;
       ws.onmessage = (ev) => { handleMessage(ev.data as string).catch(() => {}); };
       ws.onerror = () => ws.close();

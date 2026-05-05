@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiFetch } from '@/app/lib/api';
+import { apiFetch, getWebSocketUrl } from '@/app/lib/api';
 import MessageList from '@/app/components/MessageList';
 import MessageInput from '@/app/components/MessageInput';
 import VoiceChannelView from '@/app/components/VoiceChannelView';
@@ -25,8 +25,6 @@ interface Message {
   created_at: string;
   username?: string;
 }
-
-const WS_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080').replace(/^http/, 'ws');
 
 export default function ChannelView({
   serverId,
@@ -66,12 +64,14 @@ export default function ChannelView({
   // WebSocket with exponential-backoff reconnect
   const connectWs = useCallback(async () => {
     if (!alive.current) return;
+    if (typeof window === 'undefined') return;
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      reconnectTimer.current = setTimeout(connectWs, 2000);
+      return;
+    }
     try {
-      const res = await fetch('/api/ws-token');
-      if (!res.ok) return;
-      const { token } = await res.json() as { token: string };
-
-      const ws = new WebSocket(`${WS_BASE}/ws?token=${token}`);
+      const ws = new WebSocket(getWebSocketUrl('/ws'));
       wsRef.current = ws;
 
       ws.onopen = () => { reconnectAttempts.current = 0; };
