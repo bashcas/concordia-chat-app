@@ -18,13 +18,13 @@ func newHandler(rdb *redis.Client) *presenceHandler {
 	return &presenceHandler{rdb: rdb}
 }
 
-func sessionKey(connID string) string    { return "presence:session:" + connID }
-func userKey(userID string) string       { return "presence:user:" + userID + ":sessions" }
-func channelKey(chanID string) string    { return "presence:channel:" + chanID + ":sessions" }
+func sessionKey(connID string) string { return "presence:session:" + connID }
+func userKey(userID string) string    { return "presence:user:" + userID + ":sessions" }
+func channelKey(chanID string) string { return "presence:channel:" + chanID + ":sessions" }
 
 // POST /sessions
 // Body: {"connection_id":"...","user_id":"...","subscribed_channels":["ch1",...]}
-// Returns 201 Created or 409 if the connection_id is already registered.
+// Returns 200 OK. Duplicate connection_id overwrites the existing session (idempotent).
 func (h *presenceHandler) register(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ConnectionID       string   `json:"connection_id"`
@@ -39,36 +39,36 @@ func (h *presenceHandler) register(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	key := sessionKey(body.ConnectionID)
 
-	// HSetNX is atomic: returns false if the field already exists → 409 Conflict.
-	set, err := h.rdb.HSetNX(ctx, key, "user_id", body.UserID).Result()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-		return
-	}
-	if !set {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "session already exists"})
-		return
+	// Clean up stale channel index entries from a previous registration of the same connection_id.
+	if prev, _ := h.rdb.HGetAll(ctx, key).Result(); len(prev) > 0 {
+		var oldChannels []string
+		json.Unmarshal([]byte(prev["subscribed_channels"]), &oldChannels) //nolint:errcheck
+		cleanPipe := h.rdb.Pipeline()
+		for _, ch := range oldChannels {
+			cleanPipe.SRem(ctx, channelKey(ch), body.ConnectionID)
+		}
+		cleanPipe.Exec(ctx) //nolint:errcheck
 	}
 
 	channelsJSON, _ := json.Marshal(body.SubscribedChannels)
-        pipe := h.rdb.Pipeline()
-        pipe.HSet(ctx, key,
-                "connection_id", body.ConnectionID,
-                "user_id", body.UserID,
-                "subscribed_channels", string(channelsJSON),
-                "connected_at", time.Now().UTC().Format(time.RFC3339),
-        )
-        pipe.Expire(ctx, key, sessionTTL)
-        pipe.SAdd(ctx, userKey(body.UserID), body.ConnectionID)
-        for _, ch := range body.SubscribedChannels {
-                pipe.SAdd(ctx, channelKey(ch), body.ConnectionID)
-        }
-        if _, err := pipe.Exec(ctx); err != nil {
-                writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-                return
-        }
+	pipe := h.rdb.Pipeline()
+	pipe.HSet(ctx, key,
+		"connection_id", body.ConnectionID,
+		"user_id", body.UserID,
+		"subscribed_channels", string(channelsJSON),
+		"connected_at", time.Now().UTC().Format(time.RFC3339),
+	)
+	pipe.Expire(ctx, key, sessionTTL)
+	pipe.SAdd(ctx, userKey(body.UserID), body.ConnectionID)
+	for _, ch := range body.SubscribedChannels {
+		pipe.SAdd(ctx, channelKey(ch), body.ConnectionID)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
 
-        writeJSON(w, http.StatusOK, map[string]string{"status": "registered"})
+	writeJSON(w, http.StatusOK, map[string]string{"session_id": body.ConnectionID})
 }
 
 // DELETE /sessions/{connID}
