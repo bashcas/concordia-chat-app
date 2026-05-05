@@ -162,7 +162,7 @@ function createTray() {
   const png32 = base32.resize({ width: 32, height: 32 }).toPNG();
   const icon = nativeImage.createEmpty();
   icon.addRepresentation({ scaleFactor: 1, width: 16, height: 16, buffer: png16 });
-  icon.addRepresentation({ scaleFactor: 2, width: 16, height: 16, buffer: png32 });
+  icon.addRepresentation({ scaleFactor: 2, width: 32, height: 32, buffer: png32 });
   tray = new Tray(icon);
   
   const contextMenu = Menu.buildFromTemplate([
