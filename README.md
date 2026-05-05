@@ -4,38 +4,38 @@ A Discord-like real-time communication platform built as a polyglot microservice
 
 ## Architecture
 
-| Service | Language | Port | Role |
-|---------|----------|------|------|
-| Gateway | Go | 8080 | Auth, reverse-proxy, WebSocket fan-out |
-| Auth | Java/Spring Boot | 8081 | Registration, JWT issuance |
-| Servers | Java/Spring Boot | 8082 | Server/channel CRUD, CheckPerm gRPC |
-| Chat | Rust/Axum | 8083 | Messages, attachments, Kafka producer |
-| Voice | Python/FastAPI | 8084 | WebRTC signaling, voice sessions |
-| Tips | Python/FastAPI | 8085 | Peer-to-peer tips |
-| Presence | Go | 8086 | WebSocket session registry |
-| Web App | Next.js | 3000 | Browser client |
-| Desktop App | Electron + Next.js | — | Native desktop client |
+| Service     | Language           | Port | Role                                   |
+| ----------- | ------------------ | ---- | -------------------------------------- |
+| Gateway     | Go                 | 8080 | Auth, reverse-proxy, WebSocket fan-out |
+| Auth        | Java/Spring Boot   | 8081 | Registration, JWT issuance             |
+| Servers     | Java/Spring Boot   | 8082 | Server/channel CRUD, CheckPerm gRPC    |
+| Chat        | Rust/Axum          | 8083 | Messages, attachments, Kafka producer  |
+| Voice       | Python/FastAPI     | 8084 | WebRTC signaling, voice sessions       |
+| Tips        | Python/FastAPI     | 8085 | Peer-to-peer tips                      |
+| Presence    | Go                 | 8086 | WebSocket session registry             |
+| Web App     | Next.js            | 3000 | Browser client                         |
+| Desktop App | Electron + Next.js | —    | Native desktop client                  |
 
 See [`docs/service-descriptions.md`](docs/service-descriptions.md) for full architecture details.
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Docker + docker-compose | >= 24 | https://docs.docker.com/get-docker/ |
-| Go | >= 1.22 | `brew install go` |
-| Node.js | >= 22 | `brew install node` |
-| Java JDK | >= 21 | `brew install openjdk@21` |
-| Maven | >= 3.9 | `brew install maven` |
-| Rust | >= 1.75 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Python | >= 3.11 | `brew install python` |
-| protoc | >= 3.21 | `brew install protobuf` |
+| Tool                    | Version | Install                                                           |
+| ----------------------- | ------- | ----------------------------------------------------------------- |
+| Docker + docker-compose | >= 24   | https://docs.docker.com/get-docker/                               |
+| Go                      | >= 1.22 | `brew install go`                                                 |
+| Node.js                 | >= 22   | `brew install node`                                               |
+| Java JDK                | >= 21   | `brew install openjdk@21`                                         |
+| Maven                   | >= 3.9  | `brew install maven`                                              |
+| Rust                    | >= 1.75 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Python                  | >= 3.11 | `brew install python`                                             |
+| protoc                  | >= 3.21 | `brew install protobuf`                                           |
 
 ## Quick Start
 
 ```bash
 # 1. Clone
-git clone <repo-url>
+git clone git@github.com:Lespinald/concordia-chat-app.git
 cd concordia-chat-app
 
 # 2. Configure environment
@@ -82,13 +82,14 @@ Runs the full integration sequence: start stack → register → login → creat
 
 ## Kafka topics
 
-| Topic | Producer | Consumer |
-|-------|----------|----------|
-| `user-registered` | Auth | Servers |
-| `message-created` | Chat | — |
-| `mention` | Chat | — |
+| Topic             | Producer | Consumer |
+| ----------------- | -------- | -------- |
+| `user-registered` | Auth     | Servers  |
+| `message-created` | Chat     | —        |
+| `mention`         | Chat     | —        |
 
 Monitor a topic locally:
+
 ```bash
 docker exec kafka kafka-console-consumer.sh \
   --topic user-registered \
@@ -104,6 +105,7 @@ Callers: Gateway, Chat, Voice
 Server: Servers service on port `50051`
 
 Test with:
+
 ```bash
 grpcurl -plaintext localhost:50051 PermService/CheckPerm \
   -d '{"user_id":"<id>","server_id":"<id>","channel_id":"<id>","action":"READ"}'
