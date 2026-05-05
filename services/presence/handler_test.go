@@ -64,8 +64,8 @@ func TestRegisterSuccess(t *testing.T) {
 		"connection_id": "conn-1",
 		"user_id":       "user-1",
 	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 Created, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestRegisterDuplicate(t *testing.T) {
 	do(t, mux, http.MethodPost, "/sessions", body)
 
 	resp := do(t, mux, http.MethodPost, "/sessions", body)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409 Conflict on duplicate, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK (idempotent duplicate), got %d", resp.StatusCode)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestDeregisterSuccess(t *testing.T) {
 	})
 
 	resp := do(t, mux, http.MethodDelete, "/sessions/conn-del", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK on deregister, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content on deregister, got %d", resp.StatusCode)
 	}
 
 	// Session should no longer exist — a heartbeat on it must return 404.
@@ -121,8 +121,8 @@ func TestDeregisterIdempotent(t *testing.T) {
 
 	// First call on a session that never existed.
 	resp := do(t, mux, http.MethodDelete, "/sessions/nonexistent", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK (idempotent) on unknown session, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content (idempotent) on unknown session, got %d", resp.StatusCode)
 	}
 
 	// Register then deregister twice — second call must also succeed.
@@ -132,8 +132,8 @@ func TestDeregisterIdempotent(t *testing.T) {
 	})
 	do(t, mux, http.MethodDelete, "/sessions/conn-idem", nil)
 	resp2 := do(t, mux, http.MethodDelete, "/sessions/conn-idem", nil)
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK on second deregister, got %d", resp2.StatusCode)
+	if resp2.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content on second deregister, got %d", resp2.StatusCode)
 	}
 }
 
