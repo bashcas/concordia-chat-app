@@ -62,6 +62,7 @@ type Handler struct {
 
 	mu    sync.RWMutex
 	conns map[string]*connWriter
+	subs  map[string]map[string]struct{} // connID -> channel set
 }
 
 // New returns a Handler that registers sessions with presenceURL and
@@ -72,6 +73,7 @@ func New(presenceURL, chatURL string) *Handler {
 		chatURL:     chatURL,
 		client:      &http.Client{Timeout: 5 * time.Second},
 		conns:       make(map[string]*connWriter),
+		subs:        make(map[string]map[string]struct{}),
 	}
 }
 
@@ -118,16 +120,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.mu.Lock()
 	h.conns[connID] = cw
+	h.subs[connID] = make(map[string]struct{})
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
 		delete(h.conns, connID)
+		delete(h.subs, connID)
 		h.mu.Unlock()
 	}()
 
 	// Register with Presence synchronously before sending the welcome.
 	// Uses a background context so it outlives the HTTP request context.
-	if err := h.registerSession(userID, connID); err != nil {
+	if err := h.registerSession(userID, connID, nil); err != nil {
 		log.Printf("ws: register session %q: %v", connID, err)
 		// Continue — presence being down should not block the connection.
 	}
@@ -154,13 +158,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = cw.writeJSON(outMsg{Type: "error", Error: "invalid json"})
 			continue
 		}
-		h.dispatch(cw, userID, &in)
+		h.dispatch(cw, userID, connID, &in)
 	}
 }
 
 // --- message routing ---
 
-func (h *Handler) dispatch(cw *connWriter, userID string, in *inMsg) {
+func (h *Handler) dispatch(cw *connWriter, userID, connID string, in *inMsg) {
 	switch in.Type {
 	case "message.send":
 		if in.ChannelID == "" {
@@ -168,9 +172,56 @@ func (h *Handler) dispatch(cw *connWriter, userID string, in *inMsg) {
 			return
 		}
 		h.forwardToChat(cw, userID, in)
+	case "channel.subscribe":
+		if in.ChannelID == "" {
+			_ = cw.writeJSON(outMsg{Type: "error", Error: "channel_id required"})
+			return
+		}
+		h.updateSubscription(cw, userID, connID, in.ChannelID, true)
+	case "channel.unsubscribe":
+		if in.ChannelID == "" {
+			_ = cw.writeJSON(outMsg{Type: "error", Error: "channel_id required"})
+			return
+		}
+		h.updateSubscription(cw, userID, connID, in.ChannelID, false)
 	default:
 		_ = cw.writeJSON(outMsg{Type: "error", Error: "unknown type: " + in.Type})
 	}
+}
+
+// updateSubscription mutates the per-conn channel set and re-registers the
+// session with Presence so its channel→sessions index reflects the new state.
+// Presence's POST /sessions is idempotent for a given connection_id — it
+// cleans the prior channel index entries before writing the new ones.
+func (h *Handler) updateSubscription(cw *connWriter, userID, connID, channelID string, subscribe bool) {
+	h.mu.Lock()
+	set, ok := h.subs[connID]
+	if !ok {
+		// Connection was torn down concurrently; nothing to do.
+		h.mu.Unlock()
+		return
+	}
+	if subscribe {
+		set[channelID] = struct{}{}
+	} else {
+		delete(set, channelID)
+	}
+	channels := make([]string, 0, len(set))
+	for c := range set {
+		channels = append(channels, c)
+	}
+	h.mu.Unlock()
+
+	if err := h.registerSession(userID, connID, channels); err != nil {
+		log.Printf("ws: re-register session %q: %v", connID, err)
+		_ = cw.writeJSON(outMsg{Type: "error", Error: "subscribe failed"})
+		return
+	}
+	ack := "channel.subscribed"
+	if !subscribe {
+		ack = "channel.unsubscribed"
+	}
+	_ = cw.writeJSON(map[string]string{"type": ack, "channel_id": channelID})
 }
 
 func (h *Handler) forwardToChat(cw *connWriter, userID string, in *inMsg) {
@@ -223,10 +274,17 @@ func (h *Handler) runHeartbeats(ctx context.Context, connID string) {
 	}
 }
 
-func (h *Handler) registerSession(userID, connID string) error {
+func (h *Handler) registerSession(userID, connID string, channels []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	body, _ := json.Marshal(map[string]string{"user_id": userID, "connection_id": connID})
+	if channels == nil {
+		channels = []string{}
+	}
+	body, _ := json.Marshal(map[string]any{
+		"user_id":             userID,
+		"connection_id":       connID,
+		"subscribed_channels": channels,
+	})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
 		h.presenceURL+"/sessions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

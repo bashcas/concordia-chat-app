@@ -38,7 +38,7 @@ func makeToken(t *testing.T) string {
 
 type presenceLog struct {
 	mu          sync.Mutex
-	registered  []map[string]string
+	registered  []map[string]any
 	deregistered []string
 }
 
@@ -60,7 +60,7 @@ func mockPresence(t *testing.T) (*httptest.Server, *presenceLog) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/sessions":
-			var body map[string]string
+			var body map[string]any
 			json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 			pl.mu.Lock()
 			pl.registered = append(pl.registered, body)
