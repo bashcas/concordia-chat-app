@@ -5,7 +5,6 @@
 # T-08: Application services
 # T-09: Web App                           ← this commit
 # ---------------------------------------------------------------
-
 services:
   # ── Message broker ────────────────────────────────────────────
 
@@ -175,7 +174,7 @@ services:
 
   # ── Application services ──────────────────────────────────────
 
-gateway:
+  gateway:
     build:
       context: ..
       dockerfile: services/gateway/Dockerfile
@@ -189,12 +188,12 @@ gateway:
     environment:
       GATEWAY_PORT: "${GATEWAY_PORT:-8443}"
       JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
-      ALLOWED_ORIGINS: "https://localhost:3000,app://-"
+      ALLOWED_ORIGINS: "http://localhost:3000,https://localhost:3000,app://-"
       TLS_ENABLED: "true"
       TLS_CERT_FILE: "/certs/server.crt"
       TLS_KEY_FILE: "/certs/server.key"
     volumes:
-      - ./services/gateway/certs:/certs:ro
+      - ../services/gateway/certs:/certs:ro
     healthcheck:
       test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:8443/health || exit 1"]
       interval: 10s
