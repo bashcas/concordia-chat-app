@@ -1,5 +1,6 @@
-// API base URL — the public origin plus /api (the reverse proxy strips /api).
-const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'https://localhost/api';
+// API base path — origin-relative "/api" so it works on any host (the reverse
+// proxy strips /api and forwards to the gateway).
+const GATEWAY = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export type AuthState = { error?: string } | undefined;
 

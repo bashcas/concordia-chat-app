@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // The dev server blocks cross-origin requests to /_next/* (incl. the HMR
+  // WebSocket) by default. When the app is reached through a public tunnel,
+  // the browser's origin is the tunnel host, so it must be allowed here.
+  // The wildcard covers future tunnels; the explicit host is a guaranteed
+  // fallback for the current cloudflared session.
+  allowedDevOrigins: [
+    "*.trycloudflare.com",
+    "folks-focusing-garage-parker.trycloudflare.com",
+    "localhost",
+  ],
 };
 
 export default nextConfig;

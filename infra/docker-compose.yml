@@ -461,9 +461,10 @@ services:
       - ../apps/web-app:/app
       - web_app_node_modules:/app/node_modules
     environment:
-      # The browser reaches the API through the reverse proxy under /api.
-      # WebSocket (/ws) is derived from this by stripping the /api suffix.
-      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-https://localhost/api}"
+      # Origin-relative API base: the browser calls /api on whatever host it
+      # loaded from (localhost, LAN IP, or a public tunnel). The reverse proxy
+      # strips /api and forwards to the gateway.
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-/api}"
       # Polling watcher needed for hot-reload on Docker Desktop (Mac/Windows).
       WATCHPACK_POLLING: "true"
     healthcheck:
@@ -494,8 +495,9 @@ services:
       - public-net
       - private-net
     ports:
-      - "80:80"   # HTTP — redirects to HTTPS
-      - "443:443" # HTTPS — public entry point
+      - "80:80"     # HTTP — redirects to HTTPS
+      - "443:443"   # HTTPS — public entry point (TLS, Secure Channel)
+      - "8088:8088" # Plain HTTP — entry point for a public tunnel (cloudflared/ngrok)
     volumes:
       # TLS material migrated here from the gateway (Secure Channel pattern).
       - ./certs:/certs:ro

@@ -8,7 +8,31 @@ interface Participant {
   joined_at: string;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+// WebRTC ICE configuration.
+// - STUN lets peers discover their public address (enough for same-network or
+//   friendly-NAT peers).
+// - TURN relays the audio when direct peer-to-peer fails, which is the common
+//   case for testers on different networks behind NAT.
+// The TURN entries below default to a free public relay (best-effort — it can
+// be rate-limited or unavailable). For a reliable remote test, set
+// NEXT_PUBLIC_TURN_URL / _USERNAME / _CREDENTIAL to your own TURN server.
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  {
+    urls:
+      process.env.NEXT_PUBLIC_TURN_URL ||
+      'turn:openrelay.metered.ca:443',
+    username: process.env.NEXT_PUBLIC_TURN_USERNAME || 'openrelayproject',
+    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || 'openrelayproject',
+  },
+  {
+    urls:
+      process.env.NEXT_PUBLIC_TURN_URL ||
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    username: process.env.NEXT_PUBLIC_TURN_USERNAME || 'openrelayproject',
+    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || 'openrelayproject',
+  },
+];
 
 export default function VoiceChannelView({
   channelId,
