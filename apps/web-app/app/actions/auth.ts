@@ -1,4 +1,5 @@
-const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
+// API base URL — the public origin plus /api (the reverse proxy strips /api).
+const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'https://localhost/api';
 
 export type AuthState = { error?: string } | undefined;
 

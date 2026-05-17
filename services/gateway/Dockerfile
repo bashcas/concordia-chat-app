@@ -4,13 +4,15 @@ WORKDIR /workspace
 # Copy workspace descriptor so Go resolves local module replacements.
 COPY go.work go.work.sum ./
 
-# Copy every local module declared in go.work.
+# Copy the local modules the gateway builds against (authmw + audit helper).
 COPY contracts/lib/go/authmw contracts/lib/go/authmw
+COPY contracts/lib/go/audit  contracts/lib/go/audit
 COPY contracts/proto/gen/go  contracts/proto/gen/go
 
-# Presence is in go.work but not imported by gateway; only its go.mod is needed
-# to satisfy the workspace loader.
+# Presence and the audit service are in go.work but not imported by the
+# gateway; only their go.mod files are needed to satisfy the workspace loader.
 COPY services/presence/go.mod services/presence/go.mod
+COPY services/audit/go.mod    services/audit/go.mod
 
 # Copy gateway source last so earlier layers are cached across source changes.
 COPY services/gateway services/gateway

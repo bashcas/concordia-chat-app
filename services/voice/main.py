@@ -10,6 +10,13 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from redis import asyncio as aioredis
 
+from audit import (
+    AuditEmitter,
+    EVENT_VOICE_SESSION_END,
+    EVENT_VOICE_SESSION_START,
+    OUTCOME_SUCCESS,
+)
+
 import check_perm_pb2
 import check_perm_pb2_grpc
 import signaling
@@ -17,6 +24,9 @@ import signaling
 REDIS_URL = os.getenv("REDIS_ADDR", "redis://localhost:6379")
 GRPC_ADDR = os.getenv("GRPC_ADDR", "servers:50051")
 SESSION_TTL = 4 * 60 * 60  # 4 hours in seconds
+
+# Audit Trail (Pattern 3): fire-and-forget emitter for voice-session events.
+_audit = AuditEmitter(os.getenv("KAFKA_BROKERS", ""))
 
 
 @asynccontextmanager
@@ -126,6 +136,14 @@ async def join_voice_channel(channel_id: str, request: Request):
         "user_id": user_id
     }, channel_id, exclude_user_id=user_id)
 
+    _audit.emit(
+        EVENT_VOICE_SESSION_START,
+        actor={"user_id": user_id},
+        resource={"type": "channel", "id": channel_id},
+        outcome=OUTCOME_SUCCESS,
+        metadata={"session_id": session_id},
+    )
+
     return JoinResponse(
         session_id=session_id,
         channel_id=channel_id,
@@ -146,6 +164,13 @@ async def leave_voice_channel(channel_id: str, request: Request):
         "type": "participant_left",
         "user_id": user_id
     }, channel_id, exclude_user_id=user_id)
+
+    _audit.emit(
+        EVENT_VOICE_SESSION_END,
+        actor={"user_id": user_id},
+        resource={"type": "channel", "id": channel_id},
+        outcome=OUTCOME_SUCCESS,
+    )
 
 
 @app.get("/voice/{channel_id}/participants", response_model=ParticipantsResponse)

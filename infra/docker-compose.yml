@@ -3,7 +3,12 @@
 # T-06: Kafka + Zookeeper
 # T-07: PostgreSQL, Cassandra, Redis, MinIO
 # T-08: Application services
-# T-09: Web App                           ← this commit
+# T-09: Web App
+#
+# Security patterns:
+#   Pattern 1 — Reverse Proxy:        services/reverse-proxy (sole public entry)
+#   Pattern 2 — Network Segmentation: public-net + private-net (internal: true)
+#   Pattern 3 — Audit Trail:          audit + audit-db services
 # ---------------------------------------------------------------
 services:
   # ── Message broker ────────────────────────────────────────────
@@ -14,8 +19,8 @@ services:
     restart: unless-stopped
     environment:
       ALLOW_ANONYMOUS_LOGIN: "yes"
-    ports:
-      - "2181:2181"
+    networks:
+      - private-net
     healthcheck:
       test: ["CMD-SHELL", "zkServer.sh status"]
       interval: 10s
@@ -30,16 +35,15 @@ services:
     depends_on:
       zookeeper:
         condition: service_healthy
-    ports:
-      - "9092:9092" # EXTERNAL listener — reachable from the host at localhost:9092
+    networks:
+      - private-net
     environment:
       KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Two listeners so both host and Docker-internal clients can reach the broker.
-      # INTERNAL (9093) is used by containers in the same Docker network.
-      # EXTERNAL (9092) is advertised to host-side clients via the published port.
-      KAFKA_CFG_LISTENERS: INTERNAL://:9093,EXTERNAL://:9092
-      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9093,EXTERNAL://localhost:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      # Single INTERNAL listener (9093). Since Network Segmentation the broker
+      # is never reachable from the host, so the EXTERNAL listener was dropped.
+      KAFKA_CFG_LISTENERS: INTERNAL://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT
       KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
       ALLOW_PLAINTEXT_LISTENER: "yes"
@@ -47,14 +51,14 @@ services:
       test:
         [
           "CMD-SHELL",
-          "kafka-topics.sh --bootstrap-server localhost:9092 --list",
+          "kafka-topics.sh --bootstrap-server localhost:9093 --list",
         ]
       interval: 10s
       timeout: 10s
       retries: 15
       start_period: 30s
 
-  # One-shot init container: creates the three application topics once Kafka is healthy.
+  # One-shot init container: creates the application topics once Kafka is healthy.
   # Uses the INTERNAL listener (kafka:9093) so it works entirely inside the Docker network.
   kafka-init:
     image: bitnamilegacy/kafka:3.8
@@ -63,13 +67,16 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    networks:
+      - private-net
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
         kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic user-registered --partitions 1 --replication-factor 1 &&
         kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic message-created --partitions 1 --replication-factor 1 &&
         kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic mention --partitions 1 --replication-factor 1 &&
-        echo 'Topics created: user-registered, message-created, mention'
+        kafka-topics.sh --bootstrap-server kafka:9093 --create --if-not-exists --topic audit.events --partitions 1 --replication-factor 1 &&
+        echo 'Topics created: user-registered, message-created, mention, audit.events'
 
   # ── Databases ─────────────────────────────────────────────────
 
@@ -83,8 +90,8 @@ services:
       # discord_auth is the primary DB; auth_db / servers_db / tips_db are
       # created by the init script below.
       POSTGRES_DB: discord_auth
-    ports:
-      - "5432:5432"
+    networks:
+      - private-net
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -100,8 +107,8 @@ services:
     image: cassandra:4
     container_name: cassandra
     restart: unless-stopped
-    ports:
-      - "9042:9042"
+    networks:
+      - private-net
     volumes:
       - cassandra_data:/var/lib/cassandra
     healthcheck:
@@ -119,6 +126,8 @@ services:
     depends_on:
       cassandra:
         condition: service_healthy
+    networks:
+      - private-net
     volumes:
       - ./cassandra/init.cql:/init.cql:ro
     entrypoint: ["cqlsh", "cassandra", "-f", "/init.cql"]
@@ -127,8 +136,8 @@ services:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    networks:
+      - private-net
     volumes:
       - redis_data:/data
     healthcheck:
@@ -141,13 +150,12 @@ services:
     image: minio/minio
     container_name: minio
     restart: unless-stopped
-    ports:
-      - "9000:9000" # S3-compatible API
-      - "9001:9001" # Web console
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
     command: server /data --console-address ":9001"
+    networks:
+      - private-net
     volumes:
       - minio_data:/data
     healthcheck:
@@ -165,6 +173,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    networks:
+      - private-net
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
@@ -174,6 +184,9 @@ services:
 
   # ── Application services ──────────────────────────────────────
 
+  # API Gateway — a PRIVATE component since the Reverse Proxy pattern.
+  # It listens on plain HTTP; TLS is terminated at the reverse proxy.
+  # No host port: it is reached only via the reverse proxy (/api/*, /ws).
   gateway:
     build:
       context: ..
@@ -183,19 +196,18 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    ports:
-      - "8443:8443"
+    networks:
+      - private-net
     environment:
-      GATEWAY_PORT: "${GATEWAY_PORT:-8443}"
+      GATEWAY_PORT: "8080"
       JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
-      ALLOWED_ORIGINS: "http://localhost:3000,https://localhost:3000,app://-"
-      TLS_ENABLED: "true"
-      TLS_CERT_FILE: "/certs/server.crt"
-      TLS_KEY_FILE: "/certs/server.key"
-    volumes:
-      - ../services/gateway/certs:/certs:ro
+      # The browser's only origin is the reverse proxy's public URL.
+      ALLOWED_ORIGINS: "https://localhost,app://-"
+      TLS_ENABLED: "false"
+      # Audit Trail (Pattern 3): emit security events fire-and-forget to Kafka.
+      KAFKA_BROKERS: "kafka:9093"
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:8443/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -210,8 +222,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8081:8081"
+    networks:
+      - private-net
     environment:
       SERVER_PORT: "8081"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/auth_db"
@@ -235,9 +247,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8082:8082"
-      - "50051:50051"
+    networks:
+      - private-net
     environment:
       SERVER_PORT: "8082"
       GRPC_PORT: "50051"
@@ -270,8 +281,8 @@ services:
         condition: service_healthy
       presence:
         condition: service_healthy
-    ports:
-      - "8083:8083"
+    networks:
+      - private-net
     environment:
       CHAT_PORT: "${CHAT_PORT:-8083}"
       CASSANDRA_HOST: cassandra
@@ -286,7 +297,8 @@ services:
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "${MINIO_BUCKET:-attachments}"
       PRESENCE_HTTP_ADDR: "http://presence:8086"
-      GATEWAY_INTERNAL_PUSH_URL: "http://gateway:8443/internal/push"
+      # Internal chat -> gateway fan-out call; gateway now listens on plain HTTP.
+      GATEWAY_INTERNAL_PUSH_URL: "http://gateway:8080/internal/push"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
       interval: 10s
@@ -296,19 +308,22 @@ services:
 
   voice:
     build:
-      context: ../services/voice
+      context: ..
+      dockerfile: services/voice/Dockerfile
     container_name: voice
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
-    ports:
-      - "8084:8084"
+    networks:
+      - private-net
     environment:
       VOICE_PORT: "${VOICE_PORT:-8084}"
       REDIS_ADDR: redis://redis:6379
       JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
       GRPC_ADDR: "servers:50051"
+      # Audit Trail (Pattern 3): emit voice-session events fire-and-forget to Kafka.
+      KAFKA_BROKERS: "kafka:9093"
     healthcheck:
       test:
         [
@@ -332,8 +347,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "8085:8085"
+    networks:
+      - private-net
     environment:
       TIPS_PORT: "${TIPS_PORT:-8085}"
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-discord}:${POSTGRES_PASSWORD:-discord}@postgres:5432/tips_db"
@@ -360,8 +375,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    ports:
-      - "8086:8086"
+    networks:
+      - private-net
     environment:
       PRESENCE_PORT: "${PRESENCE_PORT:-8086}"
       REDIS_ADDR: redis:6379
@@ -373,6 +388,62 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── Audit Trail (Pattern 3) ───────────────────────────────────
+
+  # Append-only audit log store. Separate Postgres instance, isolated from the
+  # operational database. INSERT-only roles are created by init.sql.
+  audit-db:
+    image: postgres:16
+    container_name: audit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${AUDIT_DB_SUPERUSER:-audit_admin}"
+      POSTGRES_PASSWORD: "${AUDIT_DB_SUPERUSER_PASSWORD:-audit_admin}"
+      POSTGRES_DB: audit
+      # Passed through to init.sql to set the role passwords.
+      AUDIT_WRITER_PASSWORD: "${AUDIT_WRITER_PASSWORD:-audit_writer}"
+      AUDIT_READER_PASSWORD: "${AUDIT_READER_PASSWORD:-audit_reader}"
+    networks:
+      - private-net
+    volumes:
+      - audit_db_data:/var/lib/postgresql/data
+      - ./audit-db/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUDIT_DB_SUPERUSER:-audit_admin} -d audit"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Audit Service — consumes audit.events from Kafka, hash-chains and persists
+  # them, and exposes a forensic query endpoint protected by an admin JWT.
+  audit:
+    build:
+      context: ..
+      dockerfile: services/audit/Dockerfile
+    container_name: audit
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      audit-db:
+        condition: service_healthy
+    networks:
+      - private-net
+    environment:
+      AUDIT_PORT: "8087"
+      KAFKA_BROKERS: "kafka:9093"
+      AUDIT_TOPIC: "audit.events"
+      AUDIT_DB_WRITER_URL: "postgres://audit_writer:${AUDIT_WRITER_PASSWORD:-audit_writer}@audit-db:5432/audit?sslmode=disable"
+      AUDIT_DB_READER_URL: "postgres://audit_reader:${AUDIT_READER_PASSWORD:-audit_reader}@audit-db:5432/audit?sslmode=disable"
+      JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8087/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # ── Web App ───────────────────────────────────────────────────
 
   web-app:
@@ -383,22 +454,70 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
-    ports:
-      - "3000:3000"
+    networks:
+      - private-net
     volumes:
       # Bind-mount source for hot-reload; named volume keeps container node_modules intact.
       - ../apps/web-app:/app
       - web_app_node_modules:/app/node_modules
     environment:
-      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-https://localhost:8443}"
+      # The browser reaches the API through the reverse proxy under /api.
+      # WebSocket (/ws) is derived from this by stripping the /api suffix.
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-https://localhost/api}"
       # Polling watcher needed for hot-reload on Docker Desktop (Mac/Windows).
       WATCHPACK_POLLING: "true"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      # 127.0.0.1, not localhost: BusyBox wget resolves localhost to ::1 but
+      # the Next.js dev server listens IPv4-only.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # ── Reverse Proxy (Pattern 1) ─────────────────────────────────
+  # The ONLY public-facing component. Terminates TLS, routes by URL
+  # (/api/* and /ws -> gateway, everything else -> web-app), applies
+  # IP-based rate limiting and security headers.
+  # On BOTH networks: it bridges the public internet to the private subnet.
+  reverse-proxy:
+    build:
+      context: ../services/reverse-proxy
+    container_name: reverse-proxy
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+      web-app:
+        condition: service_healthy
+    networks:
+      - public-net
+      - private-net
+    ports:
+      - "80:80"   # HTTP — redirects to HTTPS
+      - "443:443" # HTTPS — public entry point
+    volumes:
+      # TLS material migrated here from the gateway (Secure Channel pattern).
+      - ./certs:/certs:ro
+    healthcheck:
+      # 127.0.0.1, not localhost: nginx listens IPv4-only by default.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# ── Networks (Pattern 2 — Network Segmentation) ─────────────────
+# public-net  : only the reverse proxy is attached here; carries internet traffic.
+# private-net : every other component. `internal: true` blocks any traffic to
+#               the host or the outside world — containers can only talk to
+#               each other. The reverse proxy bridges the two networks.
+networks:
+  public-net:
+    driver: bridge
+  private-net:
+    driver: bridge
+    internal: true
 
 volumes:
   postgres_data:
@@ -406,3 +525,4 @@ volumes:
   redis_data:
   minio_data:
   web_app_node_modules:
+  audit_db_data:

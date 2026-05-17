@@ -1,6 +1,12 @@
-const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
+// Base URL for API calls. Behind the reverse proxy this is the public origin
+// plus the /api prefix (e.g. https://localhost/api); the proxy strips /api and
+// forwards to the gateway.
+const GATEWAY = process.env.NEXT_PUBLIC_API_URL ?? 'https://localhost/api';
 
 export function getWebSocketUrl(path: string = '/ws'): string {
+  // WebSockets go through the same /api prefix as REST calls; the reverse
+  // proxy strips /api and the gateway sees the original path (/ws,
+  // /voice/{id}/signal, ...).
   const wsGateway = GATEWAY.replace(/^http/, 'ws');
   let url = `${wsGateway}${path}`;
   if (typeof window !== 'undefined') {

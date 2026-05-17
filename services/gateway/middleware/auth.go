@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"concordia/audit"
 	"concordia/authmw"
 )
 
@@ -33,6 +34,15 @@ func RequireAuth(next http.Handler) http.Handler {
 
 		claims, err := authmw.ValidateJWT(token)
 		if err != nil {
+			// Audit Trail: a failed JWT validation is a security-relevant
+			// event (possible token forgery). Emitted fire-and-forget.
+			auditEmitter.Emit(
+				audit.EventGatewayJWTFailure,
+				audit.Actor{IP: clientIP(r), UserAgent: r.UserAgent()},
+				nil,
+				audit.OutcomeFailure,
+				map[string]any{"reason": err.Error(), "path": r.URL.Path},
+			)
 			writeUnauthorized(w)
 			return
 		}

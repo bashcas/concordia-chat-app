@@ -49,8 +49,8 @@ Thumbs.db
 # Claude
 .claude/settings.local.json
 
-# TLS - Concordia Dev CA
-services/gateway/certs/*.key
-services/gateway/certs/*.csr
-services/gateway/certs/*.srl
-services/gateway/certs/server.ext
+# TLS - Concordia Dev CA (certs live in infra/certs/, mounted into the reverse proxy)
+infra/certs/*.key
+infra/certs/*.csr
+infra/certs/*.srl
+infra/certs/server.ext

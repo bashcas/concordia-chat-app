@@ -1,0 +1,12 @@
+[package]
+name = "audit"
+version = "0.1.0"
+edition = "2021"
+description = "Shared fire-and-forget audit-event emitter for Concordia Rust services"
+
+[dependencies]
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4"] }
+chrono = "0.4"
+tracing = "0.1"

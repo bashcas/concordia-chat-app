@@ -1,0 +1,12 @@
+# Keep the build context small for services built from the repo root
+# (context: ..). None of these are needed by any Dockerfile.
+.git
+vendor
+**/node_modules
+**/target
+**/__pycache__
+**/.next
+**/out
+**/*.class
+**/.pytest_cache
+infra/certs/*.key

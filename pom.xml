@@ -13,6 +13,7 @@
 
     <modules>
         <module>contracts/lib/java/authmw</module>
+        <module>contracts/lib/java/audit</module>
         <module>services/auth</module>
         <module>services/servers</module>
     </modules>

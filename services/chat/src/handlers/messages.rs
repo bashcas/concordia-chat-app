@@ -410,6 +410,20 @@ pub async fn delete_message(
             )
         })?;
 
+    // Audit Trail: message deletion is a state-changing, security-relevant
+    // action. Emitted fire-and-forget so it never blocks the response.
+    audit::emit(
+        &state.kafka,
+        audit::EVENT_MESSAGE_DELETE,
+        json!({ "user_id": auth.user_id.to_string() }),
+        Some(json!({ "type": "message", "id": message_id.to_string() })),
+        audit::OUTCOME_SUCCESS,
+        Some(json!({
+            "channel_id": channel_id.to_string(),
+            "author_id": row.author_id.to_string(),
+        })),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 

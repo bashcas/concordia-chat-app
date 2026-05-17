@@ -7,12 +7,15 @@ import com.concordia.servers.model.Server;
 import com.concordia.servers.repository.MembershipRepository;
 import com.concordia.servers.repository.RoleRepository;
 import com.concordia.servers.repository.ServerRepository;
+import com.concordia.audit.AuditEmitter;
+import com.concordia.audit.EventTypes;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -23,11 +26,13 @@ public class ServerService {
     private final ServerRepository serverRepository;
     private final RoleRepository roleRepository;
     private final MembershipRepository membershipRepository;
+    private final AuditEmitter auditEmitter;
 
-    public ServerService(ServerRepository serverRepository, RoleRepository roleRepository, MembershipRepository membershipRepository) {
+    public ServerService(ServerRepository serverRepository, RoleRepository roleRepository, MembershipRepository membershipRepository, AuditEmitter auditEmitter) {
         this.serverRepository = serverRepository;
         this.roleRepository = roleRepository;
         this.membershipRepository = membershipRepository;
+        this.auditEmitter = auditEmitter;
     }
 
 @Transactional
@@ -64,6 +69,12 @@ public class ServerService {
         // Persist owner's full permissions by assigning the @owner role
         roleRepository.assignRoleToMember(savedServer.getId(), ownerId, ownerRole.getId());
 
+        auditEmitter.emit(EventTypes.SERVER_CREATE,
+                Map.of("user_id", ownerId),
+                Map.of("type", "server", "id", savedServer.getId().toString()),
+                EventTypes.SUCCESS,
+                Map.of("name", name));
+
         return savedServer;
     }
 
@@ -95,7 +106,15 @@ public class ServerService {
         }
 
         server.setName(newName);
-        return serverRepository.save(server);
+        Server updated = serverRepository.save(server);
+
+        auditEmitter.emit(EventTypes.SERVER_UPDATE,
+                Map.of("user_id", requesterId),
+                Map.of("type", "server", "id", id.toString()),
+                EventTypes.SUCCESS,
+                Map.of("name", newName));
+
+        return updated;
     }
 
     @Transactional
@@ -108,5 +127,11 @@ public class ServerService {
         }
 
         serverRepository.delete(server);
+
+        auditEmitter.emit(EventTypes.SERVER_DELETE,
+                Map.of("user_id", requesterId),
+                Map.of("type", "server", "id", id.toString()),
+                EventTypes.SUCCESS,
+                Map.of("name", server.getName()));
     }
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"concordia/audit"
 	"concordia/authmw"
 
 	"github.com/redis/go-redis/v9"
@@ -59,6 +60,15 @@ func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 			if retryAfter <= 0 {
 				retryAfter = int(rateWindow.Seconds())
 			}
+			// Audit Trail: a user exceeding the rate limit is a
+			// security-relevant signal (possible abuse). Fire-and-forget.
+			auditEmitter.Emit(
+				audit.EventGatewayRateLimitBreach,
+				audit.Actor{UserID: claims.UserID, IP: clientIP(r), UserAgent: r.UserAgent()},
+				nil,
+				audit.OutcomeFailure,
+				map[string]any{"count": count, "limit": rateLimit, "path": r.URL.Path},
+			)
 			writeTooManyRequests(w, retryAfter)
 			return
 		}

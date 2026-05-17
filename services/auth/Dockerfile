@@ -3,11 +3,14 @@ WORKDIR /build
 # Copy all POMs so Maven can resolve the reactor graph
 COPY pom.xml .
 COPY contracts/lib/java/authmw/pom.xml contracts/lib/java/authmw/pom.xml
+COPY contracts/lib/java/audit/pom.xml  contracts/lib/java/audit/pom.xml
 COPY services/auth/pom.xml services/auth/pom.xml
 COPY services/servers/pom.xml services/servers/pom.xml
-# Copy only auth source
+# Source for auth and the audit library it depends on
+COPY contracts/lib/java/audit/src contracts/lib/java/audit/src
 COPY services/auth/src services/auth/src
-RUN mvn -pl services/auth package -DskipTests -q
+# -am also builds the audit module that auth depends on
+RUN mvn -pl services/auth -am package -DskipTests -q
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

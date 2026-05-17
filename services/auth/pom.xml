@@ -57,6 +57,13 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Audit Trail — shared fire-and-forget audit-event emitter -->
+        <dependency>
+            <groupId>com.concordia</groupId>
+            <artifactId>audit</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- JJWT for JWT Generation -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

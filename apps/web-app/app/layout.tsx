@@ -3,10 +3,17 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import { getWebSocketUrl } from '@/app/lib/api';
 import ServerSidebar from '@/app/components/ServerSidebar';
 import ChannelSidebar from '@/app/components/ChannelSidebar';
 import "./globals.css";
+
+// The `geist` package ships the Geist font files locally (no Google Fonts
+// download), so it works inside the segmented, internet-less private network.
+// GeistSans/GeistMono.variable set the --font-geist-sans / --font-geist-mono
+// CSS variables that globals.css references for `font-family`.
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -76,7 +83,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   }, [isAuthPage, mounted]);
 
   return (
-    <html lang="en" className="h-full antialiased font-sans">
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} h-full antialiased font-sans`}>
       <body className="h-full bg-[#09090b]">
         {mounted ? (
           isAuthPage ? (

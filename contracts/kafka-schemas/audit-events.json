@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "concordia/kafka-schemas/audit-events",
+  "title": "AuditEvent",
+  "description": "Security-relevant audit event. Produced fire-and-forget by Auth, Servers, Chat, Voice and the Gateway to the audit.events topic; consumed by the Audit Service, which hash-chains and persists each event. Producers MUST NOT set prev_hash/hash — those are computed by the Audit Service.",
+  "type": "object",
+  "required": ["event_id", "event_type", "timestamp", "actor", "outcome"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique id of this event, set by the producer."
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Dotted event name, e.g. auth.login.success, servers.member.kick."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the audited action occurred (UTC, ISO 8601)."
+    },
+    "actor": {
+      "type": "object",
+      "description": "Who performed the action. Never contains credentials.",
+      "additionalProperties": false,
+      "properties": {
+        "user_id": { "type": "string" },
+        "ip": { "type": "string" },
+        "user_agent": { "type": "string" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "description": "What the action targeted, if applicable.",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "failure"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Event-specific fields. MUST NOT contain passwords, full JWTs or message content — identifiers and metadata only.",
+      "additionalProperties": true
+    }
+  }
+}

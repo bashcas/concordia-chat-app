@@ -23,6 +23,7 @@ prost = "0.12"
 rdkafka = { version = "0.36", features = ["cmake-build"] }
 async-trait = "0.1"
 authmw = { path = "../../contracts/lib/rust/authmw" }
+audit = { path = "../../contracts/lib/rust/audit" }
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
 aws-credential-types = "1"

@@ -5,9 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
- 
+
 	_ "net/http/pprof" // registers /debug/pprof handlers on http.DefaultServeMux
+
+	"concordia/audit"
+	"concordia/gateway/middleware"
 )
  
 func getenv(key, fallback string) string {
@@ -18,11 +22,26 @@ func getenv(key, fallback string) string {
 }
  
 func main() {
-	port := getenv("GATEWAY_PORT", "8443")
+	// Since the Reverse Proxy pattern, the gateway is a private-network
+	// component: it listens on plain HTTP and TLS is terminated at the proxy.
+	// TLS_ENABLED can still be flipped to "true" to run the gateway
+	// standalone with its own certificates.
+	port := getenv("GATEWAY_PORT", "8080")
 	certFile := getenv("TLS_CERT_FILE", "/certs/server.crt")
 	keyFile := getenv("TLS_KEY_FILE", "/certs/server.key")
-	tlsEnabled := getenv("TLS_ENABLED", "true") == "true"
+	tlsEnabled := getenv("TLS_ENABLED", "false") == "true"
  
+	// Audit Trail: wire a fire-and-forget Kafka emitter so the auth and rate-
+	// limit middleware can record security-relevant events. With no brokers
+	// configured this is a no-op emitter.
+	var brokers []string
+	if v := getenv("KAFKA_BROKERS", ""); v != "" {
+		brokers = strings.Split(v, ",")
+	}
+	auditEmitter := audit.NewEmitter(brokers, audit.DefaultTopic)
+	middleware.SetAuditEmitter(auditEmitter)
+	defer auditEmitter.Close() //nolint:errcheck
+
 	handler := buildMux(configFromEnv())
  
 	srv := &http.Server{
@@ -54,10 +73,10 @@ func main() {
 	}
  
 	if tlsEnabled {
-		log.Printf("gateway starting with TLS on :%s", port)
+		log.Printf("gateway starting with TLS on :%s (standalone mode)", port)
 		log.Fatal(srv.ListenAndServeTLS(certFile, keyFile))
 	} else {
-		log.Printf("gateway starting WITHOUT TLS on :%s (dev mode)", port)
+		log.Printf("gateway starting on plain HTTP :%s (TLS terminated at the reverse proxy)", port)
 		log.Fatal(srv.ListenAndServe())
 	}
 }

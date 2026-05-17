@@ -23,6 +23,7 @@ WORKDIR /workspace
 COPY services/chat ./services/chat
 COPY contracts/proto ./contracts/proto
 COPY contracts/lib/rust/authmw ./contracts/lib/rust/authmw
+COPY contracts/lib/rust/audit ./contracts/lib/rust/audit
 
 WORKDIR /workspace/services/chat
 RUN cargo build --release
