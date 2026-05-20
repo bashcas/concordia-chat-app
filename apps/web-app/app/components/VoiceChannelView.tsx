@@ -11,27 +11,22 @@ interface Participant {
 // WebRTC ICE configuration.
 // - STUN lets peers discover their public address (enough for same-network or
 //   friendly-NAT peers).
-// - TURN relays the audio when direct peer-to-peer fails, which is the common
-//   case for testers on different networks behind NAT.
-// The TURN entries below default to a free public relay (best-effort — it can
-// be rate-limited or unavailable). For a reliable remote test, set
-// NEXT_PUBLIC_TURN_URL / _USERNAME / _CREDENTIAL to your own TURN server.
+// - TURN relays the audio when direct peer-to-peer fails — the common case for
+//   testers on different networks behind NAT. Multiple ports/transports are
+//   listed so a working path can be found through restrictive firewalls
+//   (UDP/80, TCP/80, UDP/443, TLS/443).
+// Credentials are a Metered.ca free-tier relay. TURN credentials are always
+// exposed to the browser by design, so they are not a secret.
+const TURN_USERNAME = 'a43be5ae60dfc22da44ac94d';
+const TURN_CREDENTIAL = 'AtYVhC5fn7xdhvNL';
+
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
-  {
-    urls:
-      process.env.NEXT_PUBLIC_TURN_URL ||
-      'turn:openrelay.metered.ca:443',
-    username: process.env.NEXT_PUBLIC_TURN_USERNAME || 'openrelayproject',
-    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || 'openrelayproject',
-  },
-  {
-    urls:
-      process.env.NEXT_PUBLIC_TURN_URL ||
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    username: process.env.NEXT_PUBLIC_TURN_USERNAME || 'openrelayproject',
-    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || 'openrelayproject',
-  },
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  { urls: 'turn:global.relay.metered.ca:80', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+  { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+  { urls: 'turn:global.relay.metered.ca:443', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+  { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
 ];
 
 export default function VoiceChannelView({
@@ -51,6 +46,9 @@ export default function VoiceChannelView({
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  // ICE candidates that arrive before the peer's remote description is set
+  // are buffered here and flushed once the description is applied.
+  const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const audioContainerRef = useRef<HTMLDivElement>(null);
 
   function addAudio(userId: string, stream: MediaStream) {
@@ -63,13 +61,31 @@ export default function VoiceChannelView({
       el.autoplay = true;
       container.appendChild(el);
     }
-    el.srcObject = stream;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    // Explicit play() in case autoplay is gated; the user clicked "Join", so a
+    // gesture exists and this should succeed.
+    el.play().catch(() => {});
   }
 
   function removePeer(userId: string) {
     peersRef.current.get(userId)?.close();
     peersRef.current.delete(userId);
+    pendingCandidatesRef.current.delete(userId);
     audioContainerRef.current?.querySelector(`audio[data-uid="${userId}"]`)?.remove();
+  }
+
+  // Apply any ICE candidates that were buffered before the remote description.
+  async function flushCandidates(userId: string, pc: RTCPeerConnection) {
+    const buf = pendingCandidatesRef.current.get(userId);
+    if (!buf) return;
+    pendingCandidatesRef.current.delete(userId);
+    for (const c of buf) {
+      try {
+        await pc.addIceCandidate(c);
+      } catch {
+        /* ignore individual bad candidate */
+      }
+    }
   }
 
   function makePeer(userId: string): RTCPeerConnection {
@@ -79,7 +95,10 @@ export default function VoiceChannelView({
     localStreamRef.current?.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
 
     const remote = new MediaStream();
-    pc.ontrack = (e) => { remote.addTrack(e.track); addAudio(userId, remote); };
+    pc.ontrack = (e) => {
+      remote.addTrack(e.track);
+      addAudio(userId, remote);
+    };
     pc.onicecandidate = (e) => {
       if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
@@ -89,38 +108,63 @@ export default function VoiceChannelView({
         }));
       }
     };
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[voice] peer ${userId} ICE: ${pc.iceConnectionState}`);
+    };
     return pc;
+  }
+
+  // Adds a remote ICE candidate, buffering it if the peer is not ready yet.
+  async function addRemoteCandidate(userId: string, cand: RTCIceCandidateInit) {
+    const pc = peersRef.current.get(userId);
+    if (pc && pc.remoteDescription) {
+      try {
+        await pc.addIceCandidate(cand);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    const buf = pendingCandidatesRef.current.get(userId) ?? [];
+    buf.push(cand);
+    pendingCandidatesRef.current.set(userId, buf);
   }
 
   async function handleMessage(raw: string) {
     const data = JSON.parse(raw) as Record<string, unknown>;
     const type = data.type as string;
-    const from = data.from_user_id as string | undefined;
 
-    if (type === 'participant_joined' && from) {
-      setParticipants((p) =>
-        p.some((x) => x.user_id === from)
-          ? p
-          : [...p, { user_id: from, joined_at: new Date().toISOString() }],
-      );
-      const pc = makePeer(from);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      wsRef.current?.send(JSON.stringify({ type: 'offer', target_user_id: from, sdp: offer.sdp }));
+    // Presence events come from the voice service and carry `user_id`.
+    if (type === 'participant_joined') {
+      const uid = data.user_id as string | undefined;
+      if (uid) {
+        setParticipants((p) =>
+          p.some((x) => x.user_id === uid)
+            ? p
+            : [...p, { user_id: uid, joined_at: new Date().toISOString() }],
+        );
+      }
+      // The newcomer initiates the offer to us — nothing to do here.
       return;
     }
 
-    if (type === 'participant_left' && from) {
-      setParticipants((p) => p.filter((x) => x.user_id !== from));
-      removePeer(from);
+    if (type === 'participant_left') {
+      const uid = data.user_id as string | undefined;
+      if (uid) {
+        setParticipants((p) => p.filter((x) => x.user_id !== uid));
+        removePeer(uid);
+      }
       return;
     }
 
+    // Relayed signaling messages are stamped by the server with `sender_user_id`.
+    const from = data.sender_user_id as string | undefined;
     if (!from) return;
 
     if (type === 'offer') {
       const pc = peersRef.current.get(from) ?? makePeer(from);
       await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp as string });
+      await flushCandidates(from, pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       wsRef.current?.send(JSON.stringify({ type: 'answer', target_user_id: from, sdp: answer.sdp }));
@@ -128,12 +172,16 @@ export default function VoiceChannelView({
     }
 
     if (type === 'answer') {
-      await peersRef.current.get(from)?.setRemoteDescription({ type: 'answer', sdp: data.sdp as string });
+      const pc = peersRef.current.get(from);
+      if (pc) {
+        await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp as string });
+        await flushCandidates(from, pc);
+      }
       return;
     }
 
     if (type === 'ice-candidate') {
-      await peersRef.current.get(from)?.addIceCandidate(data.candidate as RTCIceCandidateInit);
+      await addRemoteCandidate(from, data.candidate as RTCIceCandidateInit);
     }
   }
 
@@ -145,6 +193,7 @@ export default function VoiceChannelView({
     wsRef.current = null;
     peersRef.current.forEach((pc) => pc.close());
     peersRef.current.clear();
+    pendingCandidatesRef.current.clear();
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     if (audioContainerRef.current) audioContainerRef.current.innerHTML = '';
@@ -161,6 +210,8 @@ export default function VoiceChannelView({
         return;
       }
       if (!joinRes.ok) throw new Error('join failed');
+      const joinData = (await joinRes.json()) as { user_id: string };
+      const myUserId = joinData.user_id;
 
       let stream: MediaStream;
       try {
@@ -171,10 +222,15 @@ export default function VoiceChannelView({
       }
       localStreamRef.current = stream;
 
+      // Snapshot who is already in the channel — the newcomer offers to them.
+      let existingUserIds: string[] = [];
       const partRes = await apiFetch(`/voice/${channelId}/participants`);
       if (partRes.ok) {
-        const d = await partRes.json() as { participants: Participant[] };
+        const d = (await partRes.json()) as { participants: Participant[] };
         setParticipants(d.participants);
+        existingUserIds = d.participants
+          .map((p) => p.user_id)
+          .filter((u) => u !== myUserId);
       }
 
       const token = localStorage.getItem('access_token');
@@ -182,7 +238,25 @@ export default function VoiceChannelView({
 
       const ws = new WebSocket(getWebSocketUrl(`/voice/${channelId}/signal`));
       wsRef.current = ws;
-      ws.onmessage = (ev) => { handleMessage(ev.data as string).catch(() => {}); };
+
+      ws.onopen = () => {
+        // Newcomer initiates: send an offer to everyone already in the channel.
+        // Done here (not on participant_joined) so both peers' sockets exist.
+        for (const uid of existingUserIds) {
+          const pc = makePeer(uid);
+          pc.createOffer()
+            .then(async (offer) => {
+              await pc.setLocalDescription(offer);
+              wsRef.current?.send(
+                JSON.stringify({ type: 'offer', target_user_id: uid, sdp: offer.sdp }),
+              );
+            })
+            .catch(() => {});
+        }
+      };
+      ws.onmessage = (ev) => {
+        handleMessage(ev.data as string).catch(() => {});
+      };
       ws.onerror = () => ws.close();
       ws.onclose = () => {
         if (joinedRef.current) {

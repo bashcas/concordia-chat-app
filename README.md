@@ -78,6 +78,48 @@ open https://localhost
 > network and are **not** reachable from the host — this is intentional
 > (Network Segmentation). Use `docker compose exec <service> ...` to reach them.
 
+## Remote access — share the app via a Cloudflare tunnel
+
+To let people on other networks reach the app (e.g. to test multi-user servers
+and voice channels), expose it with a [Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+quick tunnel. It needs no account and serves a real HTTPS certificate.
+
+The reverse proxy has a dedicated plain-HTTP listener on **port 8088** for this
+purpose — the tunnel terminates TLS itself, so it forwards to `:8088` rather
+than the self-signed `:443`.
+
+```bash
+# 1. Install cloudflared (once)
+brew install cloudflared          # macOS — see cloudflare docs for other OSes
+
+# 2. Make sure the stack is running
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
+
+# 3. Open the tunnel (keep this terminal open while testing)
+cloudflared tunnel --url http://localhost:8088
+```
+
+`cloudflared` prints a public URL like `https://<random-words>.trycloudflare.com`
+— **that is the link you share**. Anyone can open it and register, log in,
+create/join servers and chat.
+
+Notes:
+
+- The URL is **ephemeral** — a new random hostname is generated each time
+  `cloudflared` starts.
+- `apps/web-app/next.config.ts` already allows `*.trycloudflare.com` in
+  `allowedDevOrigins`, which the Next.js dev server requires to accept the HMR
+  WebSocket from the tunnel host. A different tunnel provider would need its
+  domain added there (and a `web-app` restart).
+- The web app uses an **origin-relative API base** (`NEXT_PUBLIC_API_URL=/api`),
+  so it works on `localhost`, a LAN IP, or a tunnel URL with no rebuild.
+- **Voice:** text/servers/channels work for everyone over the tunnel. Voice
+  *audio* between people on different networks needs a TURN relay. The ICE
+  servers are configured in the `ICE_SERVERS` array in
+  `apps/web-app/app/components/VoiceChannelView.tsx` — uncomment the `turn:` /
+  `turns:` entries (and supply working credentials) for reliable remote audio.
+  STUN alone only connects peers on cooperative networks.
+
 ## Running individual service tests
 
 ```bash
