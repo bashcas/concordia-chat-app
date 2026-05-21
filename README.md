@@ -35,6 +35,49 @@ Four security architectural patterns are implemented (see
   Kafka `audit.events` topic; the Audit Service hash-chains and persists them to
   an append-only store (`audit-db`) for tamper-evident forensics.
 
+#### Toggling patterns (deploy-time flags)
+
+Four flags in [`infra/.env`](infra/.env) turn each pattern on or off. Restart the
+stack after changing them. Use the launcher script (recommended):
+
+```bash
+cp infra/.env.example infra/.env
+./infra/up.sh --build          # start with flags from infra/.env
+./infra/up.sh --print          # show resolved mode without starting
+```
+
+| Flag | When **off** | When **on** (default) |
+|------|----------------|------------------------|
+| `SECURITY_REVERSE_PROXY` | Gateway `:8080` and web-app `:3000` on the host; no Nginx edge | Single entry `https://localhost`; `/api` → gateway |
+| `SECURITY_NETWORK_SEGMENTATION` | `private-net` reachable from the host (debug) | Only the reverse proxy (or direct published ports) on the host |
+| `SECURITY_AUDIT_TRAIL` | No audit service/DB; **producers still emit** to `audit.events` | Hash-chained store + forensic API |
+| `SECURITY_SECURE_CHANNEL` | Plain HTTP (`http://localhost:8088` with proxy, or `http://localhost:8080` direct) | TLS 1.2+ at Nginx `:443` |
+
+**Invalid:** `SECURITY_REVERSE_PROXY=false` with `SECURITY_NETWORK_SEGMENTATION=true`
+(the gateway is not published when the private network is internal). `up.sh` refuses
+to start that combination.
+
+**Presets** (set in `infra/.env` or export before `./infra/up.sh`):
+
+| Preset | RP | NS | AT | SC | Open | What to expect |
+|--------|----|----|----|-----|------|----------------|
+| Full security (default) | T | T | T | T | `https://localhost` | All four patterns active |
+| Direct dev | F | F | T | T/F | `http://localhost:8080` or `https://localhost:8080` | Pre-proxy layout; gateway TLS if SC=T |
+| No forensics | * | * | F | * | (same as RP/SC) | Login works; Kafka has `audit.events` but no consumer/DB/API |
+| No edge TLS | T | T | * | F | `http://localhost:8088` | Proxy routing without `:443` |
+
+With audit off, confirm producers still write events from inside the network:
+
+```bash
+docker compose exec kafka kafka-console-consumer.sh \
+  --topic audit.events --bootstrap-server kafka:9093 --from-beginning
+```
+
+Advanced: raw `docker compose` requires matching `COMPOSE_PROFILES` and derived
+vars (`GATEWAY_TLS_ENABLED`, `NEXT_PUBLIC_API_URL`, etc.) — see [`infra/.env.example`](infra/.env.example).
+The desktop app (`npm run dev:desktop`) still needs direct gateway access
+(`SECURITY_REVERSE_PROXY=false` and `SECURITY_NETWORK_SEGMENTATION=false`).
+
 ## Prerequisites
 
 | Tool                    | Version | Install                                                           |
@@ -66,17 +109,18 @@ sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain infra/certs/ca.crt
 #    Linux:  sudo cp infra/certs/ca.crt /usr/local/share/ca-certificates/concordia-ca.crt && sudo update-ca-certificates
 
-# 4. Start the full stack
-docker-compose --env-file infra/.env -f infra/docker-compose.yml up --build
+# 4. Start the full stack (respects SECURITY_* flags in infra/.env)
+./infra/up.sh --build
 
-# 5. Open the app — the reverse proxy is the only public entry point
+# 5. Open the app (default flags: reverse proxy + TLS)
 open https://localhost
 ```
 
-> All traffic enters through the Nginx reverse proxy on ports 80/443. The
-> Gateway, services, databases and broker are on an internal-only Docker
-> network and are **not** reachable from the host — this is intentional
-> (Network Segmentation). Use `docker compose exec <service> ...` to reach them.
+> With default flags, traffic enters through the Nginx reverse proxy on ports
+> 80/443. The gateway, services, databases and broker are on an internal-only
+> Docker network and are **not** reachable from the host (Network Segmentation).
+> Use `docker compose exec <service> ...` to reach them. See
+> [Toggling patterns](#toggling-patterns-deploy-time-flags) to change modes.
 
 ## Remote access — share the app via a Cloudflare tunnel
 
@@ -93,7 +137,7 @@ than the self-signed `:443`.
 brew install cloudflared          # macOS — see cloudflare docs for other OSes
 
 # 2. Make sure the stack is running
-docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
+./infra/up.sh -d
 
 # 3. Open the tunnel (keep this terminal open while testing)
 cloudflared tunnel --url http://localhost:8088
@@ -204,6 +248,8 @@ concordia-chat-app/
 │   └── openapi/          gateway.yaml
 ├── infra/
 │   ├── docker-compose.yml
+│   ├── docker-compose.gateway-direct.yml
+│   ├── up.sh
 │   └── .env.example
 └── docs/
     └── service-descriptions.md
@@ -216,7 +262,7 @@ See [`infra/.env.example`](infra/.env.example) for a full annotated list of ever
 ```bash
 cp infra/.env.example infra/.env
 # Edit infra/.env — at minimum set JWT_SECRET to a 32+ character secret
-docker-compose --env-file infra/.env -f infra/docker-compose.yml up --build
+./infra/up.sh --build
 ```
 
 `infra/.env` is git-ignored. Never commit real credentials.

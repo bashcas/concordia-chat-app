@@ -1,0 +1,12 @@
+# Merged by infra/up.sh when SECURITY_REVERSE_PROXY=false.
+# Publishes the gateway and web-app on the host (direct dev / pre-proxy mode).
+services:
+  gateway:
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    volumes:
+      - ./certs:/certs:ro
+
+  web-app:
+    ports:
+      - "3000:3000"

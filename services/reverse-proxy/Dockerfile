@@ -3,7 +3,12 @@
 # into the image — they are mounted read-only at runtime (../infra/certs).
 FROM nginx:alpine
 
-# Replace the default server block with the Concordia routing config.
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/conf.d/default.conf
 
-EXPOSE 80 443
+COPY nginx-tls.conf nginx-plain.conf /etc/nginx/templates/
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+EXPOSE 80 443 8088

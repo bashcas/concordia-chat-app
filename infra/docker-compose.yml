@@ -202,12 +202,20 @@ services:
       GATEWAY_PORT: "8080"
       JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
       # The browser's only origin is the reverse proxy's public URL.
-      ALLOWED_ORIGINS: "https://localhost,app://-"
-      TLS_ENABLED: "false"
+      ALLOWED_ORIGINS: "${GATEWAY_ALLOWED_ORIGINS:-https://localhost,app://-}"
+      TLS_ENABLED: "${GATEWAY_TLS_ENABLED:-false}"
+      TLS_CERT_FILE: "${TLS_CERT_FILE:-/certs/server.crt}"
+      TLS_KEY_FILE: "${TLS_KEY_FILE:-/certs/server.key}"
       # Audit Trail (Pattern 3): emit security events fire-and-forget to Kafka.
       KAFKA_BROKERS: "kafka:9093"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      # 127.0.0.1, not localhost: wget may resolve ::1 while the server listens IPv4-only.
+      # When TLS_ENABLED=true (direct mode + Secure Channel), probe HTTPS not HTTP.
+      test:
+        [
+          "CMD-SHELL",
+          "if [ \"$$TLS_ENABLED\" = \"true\" ]; then wget -qO- --no-check-certificate https://127.0.0.1:8080/health; else wget -qO- http://127.0.0.1:8080/health; fi || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -393,6 +401,7 @@ services:
   # Append-only audit log store. Separate Postgres instance, isolated from the
   # operational database. INSERT-only roles are created by init.sql.
   audit-db:
+    profiles: ["audit-trail"]
     image: postgres:16
     container_name: audit-db
     restart: unless-stopped
@@ -418,6 +427,7 @@ services:
   # Audit Service — consumes audit.events from Kafka, hash-chains and persists
   # them, and exposes a forensic query endpoint protected by an admin JWT.
   audit:
+    profiles: ["audit-trail"]
     build:
       context: ..
       dockerfile: services/audit/Dockerfile
@@ -482,6 +492,7 @@ services:
   # IP-based rate limiting and security headers.
   # On BOTH networks: it bridges the public internet to the private subnet.
   reverse-proxy:
+    profiles: ["reverse-proxy"]
     build:
       context: ../services/reverse-proxy
     container_name: reverse-proxy
@@ -501,9 +512,11 @@ services:
     volumes:
       # TLS material migrated here from the gateway (Secure Channel pattern).
       - ./certs:/certs:ro
+    environment:
+      SECURITY_SECURE_CHANNEL: "${SECURITY_SECURE_CHANNEL:-true}"
     healthcheck:
-      # 127.0.0.1, not localhost: nginx listens IPv4-only by default.
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      # :8088 is present in both TLS and plain-only nginx configs.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8088/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -519,7 +532,7 @@ networks:
     driver: bridge
   private-net:
     driver: bridge
-    internal: true
+    internal: ${SECURITY_NETWORK_SEGMENTATION:-true}
 
 volumes:
   postgres_data:
