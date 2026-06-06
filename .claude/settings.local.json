@@ -1,7 +1,35 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./mvnw test *)"
+      "Bash(./mvnw test *)",
+      "Bash(chmod +x ~/.claude/statusline.sh)",
+      "Bash(~/.claude/statusline.sh)",
+      "Bash(xargs cat)",
+      "Bash(git mv *)",
+      "Bash(docker run *)",
+      "Bash(docker compose *)",
+      "Bash(chmod +x infra/audit-db/init.sh)",
+      "Bash(go mod *)",
+      "Bash(go build *)",
+      "Bash(go work *)",
+      "Bash(echo \"\\(exit: $?\\)\")",
+      "Bash(curl -sk -X POST https://localhost/api/auth/register -H 'Content-Type: application/json' -d '{\"username\":\"__TRACKED_VAR__\",\"email\":\"__TRACKED_VAR__@test.com\",\"password\":\"secret123\"}' -w '\\\\n[%{http_code}]\\\\n')",
+      "Bash(curl -sk -X POST https://localhost/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"__TRACKED_VAR__@test.com\",\"password\":\"secret123\"}' -w '\\\\n[%{http_code}]\\\\n')",
+      "Bash(curl -sk -X POST https://localhost/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"__TRACKED_VAR__@test.com\",\"password\":\"WRONG\"}' -w '\\\\n[%{http_code}]\\\\n')",
+      "Bash(curl -sk https://localhost/api/servers -H 'Authorization: Bearer not.a.real.token' -w \"\\\\n[%{http_code}]\\\\n\")",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(docker volume *)",
+      "Bash(ngrok config *)",
+      "Bash(brew install *)",
+      "Bash(cloudflared --version)",
+      "Bash(cloudflared tunnel *)",
+      "Bash(curl -s -o /dev/null -w 'GET /            -> %{http_code}\\\\n' https://folks-focusing-garage-parker.trycloudflare.com/)",
+      "Bash(curl -s -w 'GET /api/health   -> ' https://folks-focusing-garage-parker.trycloudflare.com/api/health)",
+      "Bash(curl -s -X POST https://folks-focusing-garage-parker.trycloudflare.com/api/auth/register -H 'Content-Type: application/json' -d '{\"username\":\"tunnel___TRACKED_VAR__\",\"email\":\"tun___TRACKED_VAR__@test.com\",\"password\":\"secret123\"}' -w '\\\\n[%{http_code}]\\\\n')",
+      "Bash(python3 *)",
+      "Bash(openssl x509 *)",
+      "Bash(tshark -D)"
     ]
   }
 }

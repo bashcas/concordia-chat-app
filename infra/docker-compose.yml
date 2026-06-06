@@ -206,6 +206,9 @@ services:
       TLS_ENABLED: "${GATEWAY_TLS_ENABLED:-false}"
       TLS_CERT_FILE: "${TLS_CERT_FILE:-/certs/server.crt}"
       TLS_KEY_FILE: "${TLS_KEY_FILE:-/certs/server.key}"
+      # Horizontal scaling (Lab 7): auth traffic goes through the Nginx LB,
+      # which fans out to auth_1 / auth_2 / auth_3.
+      AUTH_URL: "http://auth-lb:8081"
       # Audit Trail (Pattern 3): emit security events fire-and-forget to Kafka.
       KAFKA_BROKERS: "kafka:9093"
     healthcheck:
@@ -214,18 +217,26 @@ services:
       test:
         [
           "CMD-SHELL",
-          "if [ \"$$TLS_ENABLED\" = \"true\" ]; then wget -qO- --no-check-certificate https://127.0.0.1:8080/health; else wget -qO- http://127.0.0.1:8080/health; fi || exit 1",
+          'if [ "$$TLS_ENABLED" = "true" ]; then wget -qO- --no-check-certificate https://127.0.0.1:8080/health; else wget -qO- http://127.0.0.1:8080/health; fi || exit 1',
         ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
 
-  auth:
+  # ── Auth replicas (Lab 7: Horizontal Scaling) ─────────────────
+  # Three named replicas of the stateless auth service. Named (not
+  # `deploy.replicas`) so Nginx upstreams can resolve them by predictable
+  # hostname. None expose ports: auth-lb is the only ingress.
+  # All three run Flyway on first start; the flyway_schema_history lock
+  # serializes migrations safely (first boot is therefore slower).
+  auth_1:
+    image: concordia-auth:local
     build:
       context: ..
       dockerfile: services/auth/Dockerfile
-    container_name: auth
+    container_name: auth_1
+    hostname: auth_1
     restart: unless-stopped
     depends_on:
       postgres:
@@ -245,6 +256,85 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+
+  auth_2:
+    image: concordia-auth:local
+    container_name: auth_2
+    hostname: auth_2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth_1:
+        condition: service_started
+    networks:
+      - private-net
+    environment:
+      SERVER_PORT: "8081"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/auth_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-discord}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-discord}"
+      JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  auth_3:
+    image: concordia-auth:local
+    container_name: auth_3
+    hostname: auth_3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth_1:
+        condition: service_started
+    networks:
+      - private-net
+    environment:
+      SERVER_PORT: "8081"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/auth_db"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-discord}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-discord}"
+      JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # Nginx load balancer in front of the auth replicas. Listens on 8081 so
+  # consumers (the gateway) still see "auth on :8081" — only the hostname
+  # changes (auth -> auth-lb). To switch algorithms, swap the mounted config
+  # to nginx.least-conn.conf or nginx.ip-hash.conf and run:
+  #   docker compose up -d --no-deps auth-lb
+  auth-lb:
+    image: nginx:alpine
+    container_name: auth-lb
+    restart: unless-stopped
+    networks:
+      - private-net
+    volumes:
+      - ../services/auth-lb/nginx.round-robin.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      auth_1:
+        condition: service_healthy
+      auth_2:
+        condition: service_healthy
+      auth_3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   servers:
     build:
@@ -418,7 +508,11 @@ services:
       - audit_db_data:/var/lib/postgresql/data
       - ./audit-db/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${AUDIT_DB_SUPERUSER:-audit_admin} -d audit"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AUDIT_DB_SUPERUSER:-audit_admin} -d audit",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -506,8 +600,8 @@ services:
       - public-net
       - private-net
     ports:
-      - "80:80"     # HTTP — redirects to HTTPS
-      - "443:443"   # HTTPS — public entry point (TLS, Secure Channel)
+      - "80:80" # HTTP — redirects to HTTPS
+      - "443:443" # HTTPS — public entry point (TLS, Secure Channel)
       - "8088:8088" # Plain HTTP — entry point for a public tunnel (cloudflared/ngrok)
     volumes:
       # TLS material migrated here from the gateway (Secure Channel pattern).
