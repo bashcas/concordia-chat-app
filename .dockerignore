@@ -10,3 +10,8 @@ vendor
 **/*.class
 **/.pytest_cache
 infra/certs/*.key
+# CDK build output — must be excluded, otherwise repo-root image builds (gateway,
+# auth) recursively copy infra/cdk/cdk.out into themselves.
+**/cdk.out
+# Build artifacts (e.g. apps/desktop-app/dist Electron output) — not needed by any image.
+**/dist

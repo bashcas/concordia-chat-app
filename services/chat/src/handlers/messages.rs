@@ -4,8 +4,10 @@ use std::{sync::Arc, time::Duration};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
+use redis::AsyncCommands;
 use chrono::{DateTime, TimeZone, Utc};
 use once_cell::sync::Lazy;
 use rdkafka::producer::{FutureProducer, FutureRecord};
@@ -207,7 +209,7 @@ pub async fn list_messages(
     Path(channel_id): Path<Uuid>,
     Query(params): Query<ListMessagesQuery>,
     auth: AuthUser,
-) -> Result<Json<ListMessagesResponse>, (StatusCode, Json<Value>)> {
+) -> Result<Response, (StatusCode, Json<Value>)> {
     let server_id = resolve_server_id(&state, channel_id).await;
     let mut perm = state.perm.clone();
     let resp = perm
@@ -235,6 +237,31 @@ pub async fn list_messages(
     }
 
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+
+    // Cache-Aside: the permission check above already ran, so a HIT is safe to serve.
+    // Keyed by channel + pagination (identical for all members) → high hit rate; a HIT
+    // avoids the Cassandra read entirely. Redis errors are non-fatal (fail-open).
+    let cache_key = format!(
+        "msg:{}:{}:{}",
+        channel_id,
+        limit,
+        params.before.map(|b| b.to_string()).unwrap_or_else(|| "_".to_string()),
+    );
+    if let Some(cm) = &state.cache {
+        let mut conn = cm.clone();
+        match conn.get::<_, Option<String>>(&cache_key).await {
+            Ok(Some(body)) => {
+                return Ok((
+                    [("content-type", "application/json"), ("x-cache", "HIT")],
+                    body,
+                )
+                    .into_response());
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!("cache GET {} failed: {}", cache_key, e),
+        }
+    }
+
     // Fetch one extra row to detect has_more without a second query.
     let fetch_limit = limit + 1;
 
@@ -295,11 +322,29 @@ pub async fn list_messages(
     }
     let next_cursor = if has_more { messages.last().map(|m| m.message_id) } else { None };
 
-    Ok(Json(ListMessagesResponse {
+    let resp = ListMessagesResponse {
         messages,
         next_cursor,
         has_more,
-    }))
+    };
+    let body = serde_json::to_string(&resp).unwrap_or_default();
+
+    // Populate the cache (fail-open) with a short TTL.
+    if let Some(cm) = &state.cache {
+        let mut conn = cm.clone();
+        if let Err(e) = conn
+            .set_ex::<_, _, ()>(&cache_key, &body, state.cache_ttl_secs)
+            .await
+        {
+            tracing::warn!("cache SET {} failed: {}", cache_key, e);
+        }
+    }
+
+    Ok((
+        [("content-type", "application/json"), ("x-cache", "MISS")],
+        body,
+    )
+        .into_response())
 }
 
 #[derive(scylla::FromRow)]

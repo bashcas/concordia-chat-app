@@ -15,26 +15,30 @@ import (
 )
 
 type config struct {
-	AuthURL        string
-	ServersURL     string
-	ChatURL        string
-	VoiceURL       string
-	TipsURL        string
-	PresenceURL    string
-	RedisAddr      string
-	AllowedOrigins []string
+	AuthURL          string
+	ServersURL       string
+	ChatURL          string
+	VoiceURL         string
+	TipsURL          string
+	PresenceURL      string
+	RedisAddr        string
+	WSBackplane      bool
+	RateLimitEnabled bool
+	AllowedOrigins   []string
 }
 
 func configFromEnv() config {
 	return config{
-		AuthURL:        getenv("AUTH_URL", "http://auth:8081"),
-		ServersURL:     getenv("SERVERS_URL", "http://servers:8082"),
-		ChatURL:        getenv("CHAT_URL", "http://chat:8083"),
-		VoiceURL:       getenv("VOICE_URL", "http://voice:8084"),
-		TipsURL:        getenv("TIPS_URL", "http://tips:8085"),
-		PresenceURL:    getenv("PRESENCE_URL", "http://presence:8086"),
-		RedisAddr:      getenv("REDIS_ADDR", "redis:6379"),
-		AllowedOrigins: parseOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		AuthURL:          getenv("AUTH_URL", "http://auth:8081"),
+		ServersURL:       getenv("SERVERS_URL", "http://servers:8082"),
+		ChatURL:          getenv("CHAT_URL", "http://chat:8083"),
+		VoiceURL:         getenv("VOICE_URL", "http://voice:8084"),
+		TipsURL:          getenv("TIPS_URL", "http://tips:8085"),
+		PresenceURL:      getenv("PRESENCE_URL", "http://presence:8086"),
+		RedisAddr:        getenv("REDIS_ADDR", "redis:6379"),
+		WSBackplane:      getenv("GATEWAY_WS_BACKPLANE", "false") == "true",
+		RateLimitEnabled: getenv("RATE_LIMIT_ENABLED", "true") == "true",
+		AllowedOrigins:   parseOrigins(os.Getenv("ALLOWED_ORIGINS")),
 	}
 }
 
@@ -56,12 +60,23 @@ func parseOrigins(raw string) []string {
 	return out
 }
 
-func mustProxy(rawURL string) *httputil.ReverseProxy {
+func mustProxy(name, rawURL string, cb cbConfig) *httputil.ReverseProxy {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		log.Fatalf("invalid upstream URL %q: %v", rawURL, err)
 	}
-	return httputil.NewSingleHostReverseProxy(u)
+	p := httputil.NewSingleHostReverseProxy(u)
+	// Per-upstream circuit breaker: when this service is down or erroring, fast-fail
+	// with 503 instead of hanging on every request — isolating the failure to this
+	// one upstream and protecting the gateway from cascading resource exhaustion.
+	p.Transport = newCBTransport(name, cb)
+	p.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		log.Printf("gateway: upstream %q unavailable: %v", name, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"upstream unavailable"}`))
+	}
+	return p
 }
 
 // isChatPath reports whether path should be routed to the Chat service.
@@ -81,12 +96,13 @@ func isChatPath(path string) bool {
 }
 
 func buildMux(cfg config) http.Handler {
-	authP     := mustProxy(cfg.AuthURL)
-	serversP  := mustProxy(cfg.ServersURL)
-	chatP     := mustProxy(cfg.ChatURL)
-	voiceP    := mustProxy(cfg.VoiceURL)
-	tipsP     := mustProxy(cfg.TipsURL)
-	presenceP := mustProxy(cfg.PresenceURL)
+	cb := cbConfigFromEnv()
+	authP := mustProxy("auth", cfg.AuthURL, cb)
+	serversP := mustProxy("servers", cfg.ServersURL, cb)
+	chatP := mustProxy("chat", cfg.ChatURL, cb)
+	voiceP := mustProxy("voice", cfg.VoiceURL, cb)
+	tipsP := mustProxy("tips", cfg.TipsURL, cb)
+	presenceP := mustProxy("presence", cfg.PresenceURL, cb)
 
 	// router dispatches authenticated requests to the correct upstream.
 	// isChatPath must be evaluated before the generic /channels prefix check.
@@ -112,7 +128,7 @@ func buildMux(cfg config) http.Handler {
 		}
 	})
 
-	rl := middleware.NewRateLimiter(cfg.RedisAddr)
+	rl := middleware.NewRateLimiter(cfg.RedisAddr, cfg.RateLimitEnabled)
 
 	mux := http.NewServeMux()
 
@@ -126,7 +142,7 @@ func buildMux(cfg config) http.Handler {
 	mux.Handle("POST /auth/refresh", authP)
 
 	// WebSocket upgrade — protected by JWT.
-	wsH := ws.New(cfg.PresenceURL, cfg.ChatURL)
+	wsH := ws.New(cfg.PresenceURL, cfg.ChatURL, cfg.RedisAddr, cfg.WSBackplane)
 	mux.Handle("GET /ws", middleware.RequireAuth(wsH))
 
 	// Internal fan-out endpoint called by Chat Svc to push events to specific
@@ -144,7 +160,10 @@ func buildMux(cfg config) http.Handler {
 	// http.DefaultServeMux, which we proxy here.
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 
-	return middleware.Logger(middleware.CORS(cfg.AllowedOrigins)(mux))
+	// InstanceID is outermost so every response — including /health and proxied
+	// auth responses — carries X-Gateway-Instance-Id identifying which gateway
+	// replica handled it.
+	return middleware.InstanceID(middleware.Logger(middleware.CORS(cfg.AllowedOrigins)(mux)))
 }
 
 func writeNotFound(w http.ResponseWriter) {

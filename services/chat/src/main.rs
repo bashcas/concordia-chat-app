@@ -90,6 +90,37 @@ async fn main() -> anyhow::Result<()> {
     let servers_http_addr =
         env::var("SERVERS_HTTP_ADDR").unwrap_or_else(|_| "http://servers:8082".to_string());
 
+    // Message-history cache (Cache-Aside, TTL). Dedicated Redis; fail-open if it
+    // can't be reached so reads still work straight from Cassandra.
+    let cache_enabled = env::var("CHAT_CACHE_ENABLED").map(|v| v != "false").unwrap_or(true);
+    let cache_ttl_secs: u64 = env::var("CHAT_CACHE_TTL_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let cache = if cache_enabled {
+        let addr =
+            env::var("CHAT_CACHE_REDIS_ADDR").unwrap_or_else(|_| "redis://redis:6379".to_string());
+        match redis::Client::open(addr.clone()) {
+            Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                Ok(cm) => {
+                    tracing::info!("message cache enabled (redis {}, ttl {}s)", addr, cache_ttl_secs);
+                    Some(cm)
+                }
+                Err(e) => {
+                    tracing::warn!("message cache disabled: cannot reach redis {}: {}", addr, e);
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!("message cache disabled: invalid redis url {}: {}", addr, e);
+                None
+            }
+        }
+    } else {
+        tracing::info!("message cache disabled (CHAT_CACHE_ENABLED=false)");
+        None
+    };
+
     let shared_state = Arc::new(AppState {
         db: session,
         kafka,
@@ -103,6 +134,8 @@ async fn main() -> anyhow::Result<()> {
         presence_addr,
         gateway_push_url,
         http,
+        cache,
+        cache_ttl_secs,
     });
 
     let app = Router::new()

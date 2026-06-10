@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------
+# Lab 7 — Gateway Horizontal Scaling overlay
+# ---------------------------------------------------------------
+# Layered on top of docker-compose.yml to scale the GATEWAY out to three
+# replicas (gateway, gateway_2, gateway_3) behind an Nginx load balancer
+# (gateway-lb) using least_conn. Mirrors the auth-lb topology already in the
+# base compose:
+#
+#   client -> gateway-lb -> [gateway, gateway_2, gateway_3] -> auth-lb -> [auth_*]
+#
+# Activated by the SCALING_GATEWAY_LB flag in infra/.env, which the perf harness
+# (tests/perf/run_login_test.sh) reads. When ON, gateway-lb publishes the host
+# GATEWAY_PORT (8080) so the existing perf script hits the pool without changing
+# BASE_URL; the single `gateway` no longer publishes a host port.
+#
+# Scope: stateless REST / login throughput only. WebSocket sessions are held
+# in-memory by a single gateway replica and Chat's /internal/push must reach
+# that same replica, so /ws is NOT meant to be spread across this pool. See
+# docs/gateway-load-balancing.md.
+services:
+  # gateway (instance 1) is defined in the base compose. gateway_2 / gateway_3
+  # reuse its image and replicate its environment verbatim — they are stateless.
+  gateway_2:
+    image: concordia-gateway:local
+    container_name: gateway_2
+    hostname: gateway_2
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    networks:
+      - private-net
+    environment:
+      GATEWAY_PORT: "8080"
+      JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+      ALLOWED_ORIGINS: "${GATEWAY_ALLOWED_ORIGINS:-https://localhost,app://-}"
+      TLS_ENABLED: "${GATEWAY_TLS_ENABLED:-false}"
+      TLS_CERT_FILE: "${TLS_CERT_FILE:-/certs/server.crt}"
+      TLS_KEY_FILE: "${TLS_KEY_FILE:-/certs/server.key}"
+      AUTH_URL: "${GATEWAY_AUTH_URL:-http://auth-lb:8081}"
+      KAFKA_BROKERS: "kafka:9093"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'if [ "$$TLS_ENABLED" = "true" ]; then wget -qO- --no-check-certificate https://127.0.0.1:8080/health; else wget -qO- http://127.0.0.1:8080/health; fi || exit 1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  gateway_3:
+    image: concordia-gateway:local
+    container_name: gateway_3
+    hostname: gateway_3
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    networks:
+      - private-net
+    environment:
+      GATEWAY_PORT: "8080"
+      JWT_SECRET: "${JWT_SECRET:-changeme-32-byte-dev-secret!!!}"
+      ALLOWED_ORIGINS: "${GATEWAY_ALLOWED_ORIGINS:-https://localhost,app://-}"
+      TLS_ENABLED: "${GATEWAY_TLS_ENABLED:-false}"
+      TLS_CERT_FILE: "${TLS_CERT_FILE:-/certs/server.crt}"
+      TLS_KEY_FILE: "${TLS_KEY_FILE:-/certs/server.key}"
+      AUTH_URL: "${GATEWAY_AUTH_URL:-http://auth-lb:8081}"
+      KAFKA_BROKERS: "kafka:9093"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'if [ "$$TLS_ENABLED" = "true" ]; then wget -qO- --no-check-certificate https://127.0.0.1:8080/health; else wget -qO- http://127.0.0.1:8080/health; fi || exit 1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Nginx LB in front of the gateway replicas. Listens on 8080 so consumers see
+  # "gateway on :8080" unchanged — only the hostname differs (gateway-lb). Swap
+  # the mounted file to nginx.round-robin.conf / nginx.ip-hash.conf and run
+  #   docker compose ... up -d --no-deps gateway-lb
+  # to compare algorithms.
+  gateway-lb:
+    image: nginx:alpine
+    container_name: gateway-lb
+    restart: unless-stopped
+    networks:
+      - private-net
+    ports:
+      # Publishes the pool on the host gateway port so the perf harness reaches
+      # localhost:8080 unchanged. Reachable only when SECURITY_NETWORK_SEGMENTATION=false.
+      - "${GATEWAY_PORT:-8080}:8080"
+    volumes:
+      - ../services/gateway-lb/nginx.least-conn.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+      gateway_2:
+        condition: service_healthy
+      gateway_3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

@@ -26,4 +26,8 @@ pub struct AppState {
     pub presence_addr: String,
     pub gateway_push_url: String,
     pub http: reqwest::Client,
+    // Optional message-history cache (Cache-Aside). None when disabled or Redis is
+    // unreachable at startup — reads then go straight to Cassandra (fail-open).
+    pub cache: Option<redis::aio::ConnectionManager>,
+    pub cache_ttl_secs: u64,
 }

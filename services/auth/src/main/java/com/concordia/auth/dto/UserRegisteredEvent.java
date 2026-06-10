@@ -1,12 +1,19 @@
 package com.concordia.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.ZonedDateTime;
 import java.util.UUID;
 
 public class UserRegisteredEvent {
+    // The user-registered contract (contracts/kafka-schemas/user-registered.json) and
+    // both consumers (servers' KafkaConsumerService, chat's user_registry) use snake_case.
+    // Without these annotations Jackson emits camelCase (userId/createdAt), so the
+    // consumers fail to read user_id and never populate their username caches.
+    @JsonProperty("user_id")
     private UUID userId;
     private String username;
     private String email;
+    @JsonProperty("created_at")
     private ZonedDateTime createdAt;
 
     public UserRegisteredEvent(UUID userId, String username, String email, ZonedDateTime createdAt) {

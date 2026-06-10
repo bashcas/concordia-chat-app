@@ -15,6 +15,9 @@ Examples:
   # Public tunnel (Cloudflare, ngrok, etc.):
   BASE_URL=https://your-tunnel.example.com ./run_login_test_remote.sh
 
+  # AWS deployment via the public NLB (note the /api prefix; cert is self-signed):
+  BASE_URL=https://<nlb-dns>.elb.us-east-1.amazonaws.com/api ./run_login_test_remote.sh
+
 Optional overrides:
   VU_LEVELS="1 50 100 200 500 1000 2000"   # space-separated list of VU counts
   DURATION="30s"                            # duration per level
@@ -25,10 +28,15 @@ fi
 VU_LEVELS=(${VU_LEVELS:-1 50 100 200 500 1000 2000})
 DURATION="${DURATION:-30s}"
 
+# Skip TLS verification by default so this works against endpoints with self-signed
+# certs (e.g. the AWS NLB). Override with K6_INSECURE_SKIP_TLS_VERIFY=false.
+export K6_INSECURE_SKIP_TLS_VERIFY="${K6_INSECURE_SKIP_TLS_VERIFY:-true}"
+
 command -v k6 >/dev/null || { echo "k6 not found. Install with: brew install k6"; exit 1; }
 
 printf "==> Smoke test: GET %s/health " "$BASE_URL"
-if ! curl -fsS --max-time 5 "$BASE_URL/health" >/dev/null; then
+# -k: tolerate self-signed certs (the smoke test must match k6's TLS behaviour above).
+if ! curl -fsS -k --max-time 5 "$BASE_URL/health" >/dev/null; then
   printf "FAIL\n"
   echo "    Cannot reach $BASE_URL/health. Check the URL, the server, and the network."
   exit 1

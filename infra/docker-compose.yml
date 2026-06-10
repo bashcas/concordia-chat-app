@@ -188,6 +188,10 @@ services:
   # It listens on plain HTTP; TLS is terminated at the reverse proxy.
   # No host port: it is reached only via the reverse proxy (/api/*, /ws).
   gateway:
+    # Tagged so the gateway_2 / gateway_3 replicas in the Lab 7 gateway-scaling
+    # overlay (docker-compose.gateway-scale.yml) reuse this image instead of
+    # rebuilding it three times.
+    image: concordia-gateway:local
     build:
       context: ..
       dockerfile: services/gateway/Dockerfile
@@ -207,8 +211,10 @@ services:
       TLS_CERT_FILE: "${TLS_CERT_FILE:-/certs/server.crt}"
       TLS_KEY_FILE: "${TLS_KEY_FILE:-/certs/server.key}"
       # Horizontal scaling (Lab 7): auth traffic goes through the Nginx LB,
-      # which fans out to auth_1 / auth_2 / auth_3.
-      AUTH_URL: "http://auth-lb:8081"
+      # which fans out to auth_1 / auth_2 / auth_3. The perf harness overrides
+      # GATEWAY_AUTH_URL to http://auth_1:8081 to benchmark a single auth
+      # instance (no auth LB); ./infra/up.sh leaves the default (auth-lb).
+      AUTH_URL: "${GATEWAY_AUTH_URL:-http://auth-lb:8081}"
       # Audit Trail (Pattern 3): emit security events fire-and-forget to Kafka.
       KAFKA_BROKERS: "kafka:9093"
     healthcheck:

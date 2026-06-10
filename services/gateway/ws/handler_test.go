@@ -37,8 +37,8 @@ func makeToken(t *testing.T) string {
 // --- presence mock ---
 
 type presenceLog struct {
-	mu          sync.Mutex
-	registered  []map[string]any
+	mu           sync.Mutex
+	registered   []map[string]any
 	deregistered []string
 }
 
@@ -140,7 +140,7 @@ func TestWelcomeMessage(t *testing.T) {
 	p, _ := mockPresence(t)
 	tok := makeToken(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection, got handshake failure")
@@ -157,7 +157,7 @@ func TestRejectsNoToken(t *testing.T) {
 	_ = makeToken(t) // ensure JWT_SECRET is set
 	p, _ := mockPresence(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, resp := dial(t, wsBase, "/", "")
 	if conn != nil {
 		conn.Close()
@@ -176,7 +176,7 @@ func TestRejectsInvalidToken(t *testing.T) {
 	_ = makeToken(t) // ensure JWT_SECRET is set
 	p, _ := mockPresence(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, resp := dial(t, wsBase, "/", "definitely.not.valid")
 	if conn != nil {
 		conn.Close()
@@ -191,7 +191,7 @@ func TestSessionRegisteredOnOpen(t *testing.T) {
 	p, pl := mockPresence(t)
 	tok := makeToken(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -220,7 +220,7 @@ func TestSessionDeregisteredOnClose(t *testing.T) {
 	p, pl := mockPresence(t)
 	tok := makeToken(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -261,7 +261,7 @@ func TestMessageForwardedToChat(t *testing.T) {
 	}))
 	t.Cleanup(chat.Close)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, chat.URL))
+	_, wsBase := newGateway(t, ws.New(p.URL, chat.URL, "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -300,7 +300,7 @@ func TestUnknownMessageType(t *testing.T) {
 	p, _ := mockPresence(t)
 	tok := makeToken(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -323,7 +323,7 @@ func TestUnknownMessageType(t *testing.T) {
 // exercise the guard clause that rejects requests with no JWT claims in context.
 func TestServeHTTPNoClaims(t *testing.T) {
 	_ = makeToken(t) // ensure JWT_SECRET is set
-	h := ws.New("http://unused", "http://unused")
+	h := ws.New("http://unused", "http://unused", "", false)
 
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -339,7 +339,7 @@ func TestDispatchMissingChannelID(t *testing.T) {
 	p, _ := mockPresence(t)
 	tok := makeToken(t)
 
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://unused", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -371,7 +371,7 @@ func TestForwardToChatUpstreamDown(t *testing.T) {
 	tok := makeToken(t)
 
 	// Port 19998 has nothing listening — connection will be refused immediately.
-	_, wsBase := newGateway(t, ws.New(p.URL, "http://127.0.0.1:19998"))
+	_, wsBase := newGateway(t, ws.New(p.URL, "http://127.0.0.1:19998", "", false))
 	conn, _ := dial(t, wsBase, "/", tok)
 	if conn == nil {
 		t.Fatal("expected WebSocket connection")
@@ -407,10 +407,10 @@ func newGatewayWithPush(t *testing.T, h *ws.Handler) (string, string) {
 }
 
 func TestPushDeliversToConnectedSessions(t *testing.T) {
-	p, _ := mockPresence(t)
+	p, pl := mockPresence(t)
 	tok := makeToken(t)
 
-	h := ws.New(p.URL, "http://unused")
+	h := ws.New(p.URL, "http://unused", "", false)
 	wsBase, httpBase := newGatewayWithPush(t, h)
 
 	conn, _ := dial(t, wsBase, "/", tok)
@@ -422,11 +422,17 @@ func TestPushDeliversToConnectedSessions(t *testing.T) {
 
 	// Wait for the conn to be registered server-side.
 	waitFor(t, "connection registered", func() bool { return h.ActiveConns() == 1 })
+	waitFor(t, "presence registered", func() bool { return pl.registerCount() >= 1 })
 
-	// Discover the connection_id assigned by the gateway. The implementation
-	// numbers them sequentially from 1, so the first conn is "conn-1".
+	// Discover the connection_id the gateway assigned. It is now globally unique
+	// ("<hostname>-<seq>") so it can't be hardcoded — read what it registered with
+	// Presence.
+	pl.mu.Lock()
+	connID, _ := pl.registered[0]["connection_id"].(string)
+	pl.mu.Unlock()
+
 	body := map[string]any{
-		"session_ids": []string{"conn-1"},
+		"session_ids": []string{connID},
 		"event":       map[string]any{"type": "new_message", "payload": map[string]any{"content": "hi"}},
 	}
 	raw, _ := json.Marshal(body)
@@ -454,7 +460,7 @@ func TestPushDeliversToConnectedSessions(t *testing.T) {
 
 func TestPushReportsMissingForUnknownSessions(t *testing.T) {
 	p, _ := mockPresence(t)
-	h := ws.New(p.URL, "http://unused")
+	h := ws.New(p.URL, "http://unused", "", false)
 	_, httpBase := newGatewayWithPush(t, h)
 
 	body := map[string]any{
@@ -478,7 +484,7 @@ func TestPushReportsMissingForUnknownSessions(t *testing.T) {
 
 func TestPushRejectsInvalidJSON(t *testing.T) {
 	p, _ := mockPresence(t)
-	h := ws.New(p.URL, "http://unused")
+	h := ws.New(p.URL, "http://unused", "", false)
 	_, httpBase := newGatewayWithPush(t, h)
 
 	resp, err := http.Post(httpBase+"/internal/push", "application/json", strings.NewReader("not-json"))
@@ -495,7 +501,7 @@ func TestLoad50SimultaneousConnections(t *testing.T) {
 	p, _ := mockPresence(t)
 	tok := makeToken(t)
 
-	h := ws.New(p.URL, "http://unused")
+	h := ws.New(p.URL, "http://unused", "", false)
 	_, wsBase := newGateway(t, h)
 
 	const n = 50

@@ -188,3 +188,36 @@ docker compose stop auth_3
 k6 run tests/perf/login_test.js     # 2 replicas
 docker compose start auth_3
 ```
+
+---
+
+## 10. Gateway horizontal scaling (extends this lab to the Gateway)
+
+The same tactic is applied one layer up — the Gateway now scales to 3 replicas
+behind `gateway-lb` (Nginx `least_conn`). Two independent `.env` flags let the
+perf harness measure **with vs without** each load balancer (a 2×2 matrix):
+
+```bash
+# infra/.env
+SCALING_GATEWAY_LB=false|true   # single gateway        | gateway x3 behind gateway-lb
+SCALING_AUTH_LB=false|true      # single auth (→ auth_1) | auth x3 behind auth-lb
+```
+
+```bash
+# Flip the flag, then run the (now flag-aware) perf harness — BASE_URL is :8080
+# in both modes (single gateway vs gateway-lb publish it):
+VU_LEVELS="1 50 100 200 300" DURATION=30s ./tests/perf/run_login_test.sh
+```
+
+Each Gateway replica stamps responses with `X-Gateway-Instance-Id` (distinct from
+auth's `X-Instance-Id`, since a login crosses both load balancers):
+
+```bash
+for i in $(seq 1 9); do
+  curl -s -D - -o /dev/null http://localhost:8080/health | grep -i X-Gateway-Instance-Id
+done
+```
+
+> Scope: stateless REST/login only. WebSockets stay on a single Gateway in the
+> default `./infra/up.sh` stack. Full methodology, algorithm switching, and the
+> results template: **`docs/gateway-load-balancing.md`**.

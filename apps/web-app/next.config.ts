@@ -1,12 +1,22 @@
 import type { NextConfig } from "next";
 
-// `output: "export"` with dynamic routes requires every visited URL to exist in
-// `generateStaticParams()`. That cannot cover arbitrary server IDs during `next dev`,
-// so we only enable static export for production builds (`npm run build`). Electron
-// still loads `out/` from `next build`; `electron-serve` falls back to `index.html`
-// for paths with no matching HTML file.
+// Output mode:
+//   - NEXT_OUTPUT=server -> a normal Next.js server build (run via `next start`).
+//     Used for the server-hosted web deployment (AWS). Required so dynamic routes
+//     like /servers/<id>/channels/<cid> render on demand — static export only
+//     pre-renders the IDs from generateStaticParams() ([{id:'default'}]) and
+//     hard-reloads to the root index.html for real IDs.
+//   - production (no flag) -> static export to out/ (Electron loads it via electron-serve).
+//   - dev -> next dev.
+const output =
+  process.env.NEXT_OUTPUT === "server"
+    ? undefined
+    : process.env.NODE_ENV === "production"
+      ? ("export" as const)
+      : undefined;
+
 const nextConfig: NextConfig = {
-  ...(process.env.NODE_ENV === "production" ? { output: "export" as const } : {}),
+  ...(output ? { output } : {}),
   trailingSlash: true,
   images: {
     unoptimized: true,

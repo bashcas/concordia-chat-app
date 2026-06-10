@@ -29,7 +29,11 @@
       "Bash(curl -s -X POST https://folks-focusing-garage-parker.trycloudflare.com/api/auth/register -H 'Content-Type: application/json' -d '{\"username\":\"tunnel___TRACKED_VAR__\",\"email\":\"tun___TRACKED_VAR__@test.com\",\"password\":\"secret123\"}' -w '\\\\n[%{http_code}]\\\\n')",
       "Bash(python3 *)",
       "Bash(openssl x509 *)",
-      "Bash(tshark -D)"
+      "Bash(tshark -D)",
+      "Bash(npx tsc *)",
+      "Bash(unset AWS_PROFILE)",
+      "Bash(export BUILDX_NO_DEFAULT_ATTESTATIONS=1)",
+      "Bash(CDK_DEFAULT_ACCOUNT=537090272317 CDK_DEFAULT_REGION=us-east-1 npx cdk deploy --require-approval never -c apiRateLimit=100000 -c apiRateBurst=1000)"
     ]
   }
 }

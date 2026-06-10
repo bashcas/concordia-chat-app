@@ -18,15 +18,18 @@ const (
 )
 
 // RateLimiter enforces a fixed-window rate limit of 100 req/min per user,
-// backed by Redis counters keyed by user ID.
+// backed by Redis counters keyed by user ID. When disabled it is a no-op
+// (used to remove the cap during load testing; default is enabled).
 type RateLimiter struct {
-	rdb *redis.Client
+	rdb     *redis.Client
+	enabled bool
 }
 
 // NewRateLimiter creates a RateLimiter connected to the given Redis address.
-func NewRateLimiter(addr string) *RateLimiter {
+func NewRateLimiter(addr string, enabled bool) *RateLimiter {
 	return &RateLimiter{
-		rdb: redis.NewClient(&redis.Options{Addr: addr}),
+		rdb:     redis.NewClient(&redis.Options{Addr: addr}),
+		enabled: enabled,
 	}
 }
 
@@ -34,6 +37,10 @@ func NewRateLimiter(addr string) *RateLimiter {
 // so that JWT claims are present in the request context.
 func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !rl.enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
 		claims, ok := r.Context().Value(ClaimsKey).(*authmw.Claims)
 		if !ok || claims == nil {
 			// No claims in context (shouldn't happen after RequireAuth) — pass through.

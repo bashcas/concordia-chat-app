@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"concordia/gateway/middleware"
 
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 var upgrader = websocket.Upgrader{
@@ -57,6 +60,12 @@ type Handler struct {
 	chatURL     string
 	client      *http.Client
 
+	// instanceID makes connIDs globally unique across gateway replicas, so a
+	// backplane push only delivers on the pod that actually holds the socket.
+	instanceID string
+	backplane  bool
+	rdb        *redis.Client
+
 	active atomic.Int32 // tracks live connections; used for leak detection
 	seq    atomic.Uint64
 
@@ -65,16 +74,29 @@ type Handler struct {
 	subs  map[string]map[string]struct{} // connID -> channel set
 }
 
-// New returns a Handler that registers sessions with presenceURL and
-// forwards message.send payloads to chatURL.
-func New(presenceURL, chatURL string) *Handler {
-	return &Handler{
+// New returns a Handler that registers sessions with presenceURL and forwards
+// message.send payloads to chatURL. When backplane is true, /internal/push events
+// are fanned out via Redis pub/sub (redisAddr) so the gateway can run multiple
+// replicas — each replica delivers to the sockets it holds locally.
+func New(presenceURL, chatURL, redisAddr string, backplane bool) *Handler {
+	instanceID, _ := os.Hostname()
+	if instanceID == "" {
+		instanceID = "gateway"
+	}
+	h := &Handler{
 		presenceURL: presenceURL,
 		chatURL:     chatURL,
 		client:      &http.Client{Timeout: 5 * time.Second},
 		conns:       make(map[string]*connWriter),
 		subs:        make(map[string]map[string]struct{}),
+		instanceID:  instanceID,
+		backplane:   backplane,
 	}
+	if backplane {
+		h.rdb = redis.NewClient(&redis.Options{Addr: redisAddr})
+		go h.runBackplane()
+	}
+	return h
 }
 
 // ActiveConns returns the number of currently open WebSocket connections.
@@ -114,7 +136,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.active.Add(1)
 	defer h.active.Add(-1)
 
-	connID := fmt.Sprintf("conn-%d", h.seq.Add(1))
+	connID := fmt.Sprintf("%s-%d", h.instanceID, h.seq.Add(1))
 	userID := claims.UserID
 	cw := &connWriter{conn: conn}
 
@@ -323,12 +345,24 @@ type PushResponse struct {
 	Missing   int `json:"missing"`
 }
 
+// pushChannel is the Redis pub/sub channel used as the WebSocket backplane.
+const pushChannel = "gateway:push"
+
 // PushHandler implements POST /internal/push. Internal-only path: in production
 // this should be reachable only inside the Docker network or behind a shared
 // secret — the route is not exposed via auth middleware on purpose.
+//
+// With the backplane enabled the push is published to Redis and fanned out to every
+// gateway replica (so whichever pod holds each socket delivers it); otherwise it is
+// delivered directly from this instance's connection table (single-replica mode).
 func (h *Handler) PushHandler(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"read error"}`, http.StatusBadRequest)
+		return
+	}
 	var req PushRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
 		return
 	}
@@ -337,8 +371,26 @@ func (h *Handler) PushHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delivered := 0
-	missing := 0
+	if h.backplane {
+		// Publish once; every replica's subscriber (including this one) delivers to
+		// the sessions it holds locally. Publish-only here avoids double-delivery.
+		if err := h.rdb.Publish(r.Context(), pushChannel, body).Err(); err != nil {
+			log.Printf("ws: backplane publish failed: %v", err)
+			http.Error(w, `{"error":"backplane unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	delivered, missing := h.deliverLocal(req)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(PushResponse{Delivered: delivered, Missing: missing})
+}
+
+// deliverLocal writes req.Event to every session in req.SessionIDs that THIS gateway
+// instance currently holds. Sessions held by other replicas are counted as missing.
+func (h *Handler) deliverLocal(req PushRequest) (delivered, missing int) {
 	for _, id := range req.SessionIDs {
 		h.mu.RLock()
 		cw, ok := h.conns[id]
@@ -354,7 +406,21 @@ func (h *Handler) PushHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		delivered++
 	}
+	return delivered, missing
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(PushResponse{Delivered: delivered, Missing: missing})
+// runBackplane subscribes to the Redis fan-out channel and delivers each published
+// PushRequest to the sockets this replica holds. go-redis keeps the subscription
+// alive (auto-reconnect) for the lifetime of the process.
+func (h *Handler) runBackplane() {
+	sub := h.rdb.Subscribe(context.Background(), pushChannel)
+	log.Printf("ws: backplane subscribed to %q (instance %s)", pushChannel, h.instanceID)
+	for msg := range sub.Channel() {
+		var req PushRequest
+		if err := json.Unmarshal([]byte(msg.Payload), &req); err != nil {
+			log.Printf("ws: backplane bad payload: %v", err)
+			continue
+		}
+		h.deliverLocal(req)
+	}
 }

@@ -81,6 +81,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "audit"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rdkafka",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "authmw"
 version = "0.1.0"
 dependencies = [
@@ -663,6 +674,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "backon"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cffb0e931875b666fc4fcb20fee52e9bbd1ef836fd9e9e04ec21555f9f85f7ef"
+dependencies = [
+ "fastrand",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -784,6 +804,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "audit",
  "authmw",
  "aws-config",
  "aws-credential-types",
@@ -795,6 +816,7 @@ dependencies = [
  "once_cell",
  "prost",
  "rdkafka",
+ "redis",
  "regex",
  "reqwest",
  "scylla",
@@ -839,6 +861,20 @@ name = "cmov"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
+
+[[package]]
+name = "combine"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
 
 [[package]]
 name = "const-oid"
@@ -1845,6 +1881,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2312,7 +2357,7 @@ checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "once_cell",
@@ -2332,7 +2377,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -2520,6 +2565,32 @@ dependencies = [
  "libz-sys",
  "num_enum 0.7.6",
  "pkg-config",
+]
+
+[[package]]
+name = "redis"
+version = "0.27.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09d8f99a4090c89cc489a94833c901ead69bfbf3877b4867d5482e321ee875bc"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "backon",
+ "bytes",
+ "combine",
+ "futures",
+ "futures-util",
+ "itertools 0.13.0",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "sha1_smol",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-util",
+ "url",
 ]
 
 [[package]]
@@ -2779,7 +2850,7 @@ dependencies = [
  "dashmap",
  "futures",
  "histogram",
- "itertools",
+ "itertools 0.11.0",
  "lz4_flex",
  "num_enum 0.6.1",
  "rand 0.8.6",
@@ -2957,6 +3028,12 @@ dependencies = [
  "cpufeatures 0.3.0",
  "digest 0.11.3",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"

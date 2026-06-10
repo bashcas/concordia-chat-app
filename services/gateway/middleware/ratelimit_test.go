@@ -17,7 +17,7 @@ import (
 func newTestRateLimiter(t *testing.T) (*middleware.RateLimiter, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
-	rl := middleware.NewRateLimiter(mr.Addr())
+	rl := middleware.NewRateLimiter(mr.Addr(), true)
 	return rl, mr
 }
 
@@ -151,7 +151,7 @@ func TestUsersHaveIndependentCounters(t *testing.T) {
 
 func TestRedisUnavailableFailsOpen(t *testing.T) {
 	// Point at a port with nothing listening.
-	rl := middleware.NewRateLimiter("127.0.0.1:19999")
+	rl := middleware.NewRateLimiter("127.0.0.1:19999", true)
 	h := rl.Limit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

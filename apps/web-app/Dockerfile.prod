@@ -1,0 +1,24 @@
+# Production image for the Concordia web app (server-hosted deployment, e.g. AWS).
+#
+# The default ./Dockerfile runs `next dev` (hot-reload) for local docker-compose.
+# This one runs a real Next.js SERVER (`next build` + `next start`), NOT a static
+# export: the app's dynamic routes (/servers/<id>/channels/<cid>) must render on
+# demand. Static export only pre-renders generateStaticParams() ([{id:'default'}]),
+# so real server/channel IDs hard-reload to the root page. (This matches the app's
+# documented SSR design; static export is reserved for the Electron desktop build.)
+FROM node:20-alpine
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY . .
+# Origin-relative API base baked for the browser; the reverse proxy strips /api.
+ENV NEXT_PUBLIC_API_URL=/api
+# NEXT_OUTPUT=server -> next.config.ts disables `output: export` (server build).
+ENV NEXT_OUTPUT=server
+RUN npm run build
+# Production runtime for `next start`.
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3000
+CMD ["npm", "run", "start"]

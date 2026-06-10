@@ -137,12 +137,19 @@ export default function ChannelView({
       });
       if (res.ok || res.status === 201) {
         const real = await res.json() as Message;
-        // Swap temp with the confirmed message from the server
-        setExtraMessages((prev) =>
-          prev.map((m) =>
+        setExtraMessages((prev) => {
+          // The message also echoes back over the WebSocket. If that echo already
+          // appended the real message (it raced ahead of this POST response), just
+          // drop the optimistic placeholder instead of swapping it into a duplicate.
+          if (prev.some((m) => m.message_id === real.message_id)) {
+            return prev.filter((m) => m.message_id !== tempId);
+          }
+          // Otherwise swap the temp placeholder for the confirmed message; the WS
+          // echo will then be deduped by message_id when it arrives.
+          return prev.map((m) =>
             m.message_id === tempId ? { ...real, username: currentUser.username } : m,
-          ),
-        );
+          );
+        });
       } else {
         setExtraMessages((prev) => prev.filter((m) => m.message_id !== tempId));
       }

@@ -1,0 +1,7 @@
+node_modules
+cdk.out
+.secrets.json
+*.js
+!jest.config.js
+*.d.ts
+.cdk.staging
